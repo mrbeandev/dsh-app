@@ -60,6 +60,11 @@ describe('transcript', () => {
     const rows = buildTranscript([ev(1, 'assistant/attempt', { stream: [{ type: 'chunk', chunk: { type: 'finish', reason: { kind: 'error', failure: { code: 'MISSING_CREDENTIAL', message: 'No API key' } } } }] }), ev(2, 'turn/end', { reason: { kind: 'aborted', reason: { kind: 'user' } } }), ev(3, 'turn/end', { reason: { kind: 'error', error: { code: 'QUOTA', message: 'x' } } })]);
     expect(only(rows, 'failure').map(r => (r as any).text)).toEqual(['Generation failed: No API key', 'Stopped', 'Usage quota reached. Try again later.']);
   });
+  it('folds approvals into the tool row they guard', () => {
+    const rows = buildTranscript([ev(1, 'tool/call', { callId: 'c', name: 'bash', arguments: '{"command":"date"}' }), ev(2, 'approval/asked', { id: 'a1', toolName: 'bash', callId: 'c' }), ev(3, 'approval/decided', { id: 'a1', outcome: 'allowed-once' }), ev(4, 'tool/result', { message: { toolCallId: 'c', content: text('Tue') } })]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'tool', approval: 'allowed', result: 'Tue' });
+  });
   it('keeps unknown events inspectable', () => expect(buildTranscript([ev(3, 'future/event', { a: 1 })])[0]?.kind).toBe('event'));
 });
 

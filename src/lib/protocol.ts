@@ -45,7 +45,7 @@ function reasoningText(value: unknown): string {
 export type TranscriptRow =
   | { id: string; kind: 'user'; text: string; source?: string }
   | { id: string; kind: 'assistant'; text: string; reasoning?: string; interrupted?: boolean }
-  | { id: string; kind: 'tool'; callId: string; name: string; args: string; result?: string; isError?: boolean; errorReason?: string; pending: boolean }
+  | { id: string; kind: 'tool'; callId: string; name: string; args: string; result?: string; isError?: boolean; errorReason?: string; pending: boolean; approval?: 'asked' | 'allowed' | 'denied' | 'cancelled' }
   | { id: string; kind: 'context'; label: string; summary?: string; text: string; icon: ContextIcon }
   | { id: string; kind: 'compaction'; state: 'running' | 'done' | 'failed'; summary?: string; tokens?: number; error?: string }
   | { id: string; kind: 'system'; text: string }
@@ -109,6 +109,7 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
   const rows: TranscriptRow[] = [];
   const tools = new Map<string, Extract<TranscriptRow, { kind: 'tool' }>>();
   const compactions = new Map<string, Extract<TranscriptRow, { kind: 'compaction' }>>();
+  const approvals = new Map<string, Extract<TranscriptRow, { kind: 'tool' }>>();
   let lastSystem = '';
   for (const event of events) {
     const d = event.data ?? {};
@@ -166,6 +167,18 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
         const row = tools.get(callId);
         if (row) { row.result = result; row.isError = !!message?.isError; row.errorReason = err?.reason; row.pending = false; }
         else rows.push({ id, kind: 'tool', callId: callId || id, name: 'Tool result', args: '', result, isError: !!message?.isError, errorReason: err?.reason, pending: false });
+        break;
+      }
+      case 'approval/asked': {
+        // Approval state is shown on the tool row it guards (like the Web chat), not as its own row.
+        const row = tools.get(String(d.callId ?? '')) ?? [...tools.values()].reverse().find(r => r.name === d.toolName && r.pending);
+        if (row) { row.approval = 'asked'; approvals.set(String(d.id), row); }
+        break;
+      }
+      case 'approval/decided': {
+        const row = approvals.get(String(d.id));
+        const o = typeof d.outcome === 'string' ? d.outcome : String((d.outcome as any)?.kind ?? '');
+        if (row) row.approval = /allow|approve|accept/i.test(o) ? 'allowed' : /reject|deny/i.test(o) ? 'denied' : 'cancelled';
         break;
       }
       case 'compaction/start': {

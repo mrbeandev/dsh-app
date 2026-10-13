@@ -12,10 +12,12 @@ import { useApp } from '../state/app';
  * Use only for floating controls (bars, composer, sheets) — never for content.
  */
 const NATIVE_GLASS = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
+const ANDROID_LIVE_BLUR = false;
 const TargetContext = createContext<RefObject<View | null> | null>(null);
 
 /** Wrap the scrolling content that floating glass controls should blur on Android. */
 export function GlassTarget({ target, children, style }: { target: RefObject<View | null>; children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+  if (!ANDROID_LIVE_BLUR) return <View ref={target} style={[{ flex: 1 }, style]}>{children}</View>;
   return <TargetContext.Provider value={target}><BlurTargetView ref={target} style={[{ flex: 1 }, style]}>{children}</BlurTargetView></TargetContext.Provider>;
 }
 /** Expose a blur target to glass controls rendered outside the target's subtree. */
@@ -47,7 +49,10 @@ export function Glass({ children, style, radius = 22, interactive = false, promi
     return <View style={[{ borderRadius: radius }, shadow]}><GlassView glassEffectStyle="regular" isInteractive={interactive} colorScheme={colors.dark ? 'dark' : 'light'} style={[shape, style]}>{children}</GlassView></View>;
   }
 
-  const blur = Platform.OS === 'android' && target
+  // Android live blur is disabled: expo-blur's target binding throws "Cannot set prop 'blurTargetId'"
+  // when the activity is recreated or backgrounded (seen on device). The translucent glass tint below
+  // reproduces the approved look without it. Re-enable by setting ANDROID_LIVE_BLUR once fixed upstream.
+  const blur = ANDROID_LIVE_BLUR && Platform.OS === 'android' && target
     ? <BlurView pointerEvents="none" blurTarget={target} blurMethod="dimezisBlurViewSdk31Plus" intensity={prominent ? 70 : 55} tint={colors.dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
     : Platform.OS === 'web' ? <BlurView pointerEvents="none" intensity={60} tint={colors.dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} /> : null;
 

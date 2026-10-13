@@ -94,7 +94,7 @@ export function Button({ title, onPress, loading, disabled, secondary = false, d
 /** Grouped inset text field with a footnote label above. */
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
   const { colors } = useApp();
-  return <View style={{ gap: 6 }}><View style={{ paddingHorizontal: 16 }}><T style="footnote" color="secondary">{label.toUpperCase()}</T></View><TextInput accessibilityLabel={label} placeholderTextColor={colors.tertiary} {...props} style={[type.body, { borderRadius: 14, backgroundColor: colors.grouped, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, color: colors.text, paddingHorizontal: 16, height: 44 }, props.multiline && { height: undefined, minHeight: 88, paddingVertical: 11, textAlignVertical: 'top' }, props.style]} /></View>;
+  return <View style={{ gap: 6 }}><View style={{ paddingHorizontal: 14 }}><T style="caption1" color="secondary">{label.toUpperCase()}</T></View><TextInput accessibilityLabel={label} placeholderTextColor={colors.tertiary} {...props} style={[type.subhead, { fontSize: 14, borderRadius: 12, backgroundColor: colors.grouped, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, color: colors.text, paddingHorizontal: 14, height: 42 }, props.multiline && { height: undefined, minHeight: 88, paddingVertical: 11, textAlignVertical: 'top' }, props.style]} /></View>;
 }
 
 /** Search field: 36 pt capsule with a magnifying glass, matching the iOS search bar. */
@@ -108,22 +108,23 @@ export function SearchField({ value, onChangeText, placeholder, glass = false }:
 export function Section({ header, footer, children }: { header?: string; footer?: string; children: React.ReactNode }) {
   const { colors } = useApp();
   return <View style={{ gap: 6 }}>
-    {header ? <View style={{ paddingHorizontal: 16 }}><T style="footnote" color="secondary">{header.toUpperCase()}</T></View> : null}
-    <View style={{ backgroundColor: colors.grouped, borderRadius: 14, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>{React.Children.toArray(children).filter(Boolean).map((child, i) => <View key={i}>{i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: 16 }} />}{child}</View>)}</View>
-    {footer ? <View style={{ paddingHorizontal: 16 }}><T style="footnote" color="secondary">{footer}</T></View> : null}
+    {header ? <View style={{ paddingHorizontal: 14 }}><T style="caption1" color="secondary">{header.toUpperCase()}</T></View> : null}
+    <View style={{ backgroundColor: colors.grouped, borderRadius: 14, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>{React.Children.toArray(children).filter(Boolean).map((child, i) => <View key={i}>{i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: 14 }} />}{child}</View>)}</View>
+    {footer ? <View style={{ paddingHorizontal: 14 }}><T style="caption1" color="secondary">{footer}</T></View> : null}
   </View>;
 }
 
 /** 44 pt list row with optional leading icon, value, and disclosure chevron. */
 export function Row({ title, subtitle, value, icon, iconTint, onPress, chevron = !!onPress, destructive, accessory, selected }: { title: string; subtitle?: string; value?: string; icon?: IconName; iconTint?: string; onPress?: () => void; chevron?: boolean; destructive?: boolean; accessory?: React.ReactNode; selected?: boolean }) {
   const { colors } = useApp();
-  return <Pressable accessibilityRole={onPress ? 'button' : undefined} accessibilityState={selected !== undefined ? { selected } : undefined} disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 16, paddingVertical: subtitle ? 8 : 11, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: pressed ? colors.fill : 'transparent' })}>
-    {icon ? <Ionicons name={icon} size={20} color={iconTint ?? (destructive ? colors.danger : colors.primary)} /> : null}
-    <View style={{ flex: 1 }}><T style="body" color={destructive ? 'danger' : 'primary'} numberOfLines={1}>{title}</T>{subtitle ? <T style="footnote" color="secondary" numberOfLines={2}>{subtitle}</T> : null}</View>
-    {value ? <T style="body" color="secondary" numberOfLines={1}>{value}</T> : null}
+  // Slim row: 44 pt minimum target, compact 14/12 pt text (matches the approved prototype density).
+  return <Pressable accessibilityRole={onPress ? 'button' : undefined} accessibilityState={selected !== undefined ? { selected } : undefined} disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 14, paddingVertical: subtitle ? 7 : 10, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
+    {icon ? <Ionicons name={icon} size={18} color={iconTint ?? (destructive ? colors.danger : colors.primary)} /> : null}
+    <View style={{ flex: 1 }}><T style="footnote" weight="500" color={destructive ? 'danger' : 'primary'} numberOfLines={1} styleOverride={{ fontSize: 14 }}>{title}</T>{subtitle ? <T style="caption1" color="secondary" numberOfLines={2}>{subtitle}</T> : null}</View>
+    {value ? <T style="caption1" color="secondary" numberOfLines={1}>{value}</T> : null}
     {accessory}
-    {selected ? <Ionicons name="checkmark" size={20} color={colors.primary} /> : null}
-    {chevron ? <Ionicons name="chevron-forward" size={16} color={colors.tertiary} /> : null}
+    {selected ? <Ionicons name="checkmark" size={17} color={colors.primary} /> : null}
+    {chevron ? <Ionicons name="chevron-forward" size={14} color={colors.tertiary} /> : null}
   </Pressable>;
 }
 
@@ -136,7 +137,7 @@ export function Empty({ icon = 'chatbubble-outline', title, detail }: { icon?: I
 
 export const s = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingTop: 4, paddingBottom: 8, minHeight: 56 },
-  body: { padding: 16, gap: 24 },
+  body: { padding: 14, gap: 18 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   search: { height: 36, borderRadius: 18, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },
 });
