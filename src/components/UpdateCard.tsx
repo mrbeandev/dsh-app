@@ -9,18 +9,20 @@ import { currentVersion } from '../lib/updater';
 import { relativeTime } from '../lib/time';
 
 const mb = (n: number) => `${(n / 1048576).toFixed(1)} MB`;
+/** "just now" / "5m ago" / "Yesterday" — relativeTime returns bare 'now', '5m', or day names. */
+const ago = (t: number) => { const r = relativeTime(t); return r === 'now' ? 'just now' : /^\d+[mh]$/.test(r) ? `${r} ago` : r; };
 
 /** Settings › App Updates. */
 export function UpdateSection() {
   const { colors } = useApp(); const u = useUpdates(); const st = u.state;
   const release = 'release' in st ? st.release : undefined;
-  const footer = st.kind === 'current' ? `You’re on the latest version · checked ${relativeTime(st.checkedAt)} ago` : 'Updates come from GitHub releases. You confirm the install in Android’s installer.';
+  const footer = st.kind === 'current' ? `You’re on the latest version · checked ${ago(st.checkedAt)}` : 'Updates come from GitHub releases. You confirm the install in Android’s installer.';
   return <Section header="App Updates" footer={footer}>
     <Row icon="phone-portrait-outline" title="Installed" value={`v${currentVersion()}`} chevron={false} />
     {release ? <View style={{ padding: 14, gap: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Ionicons name="sparkles" size={16} color={colors.primary} />
-        <View style={{ flex: 1 }}><T style="footnote" weight="600" styleOverride={{ fontSize: 14 }}>{`Version ${release.version} available`}</T><T style="caption1" color="secondary">{`${mb(release.size)}${release.publishedAt ? ` · released ${relativeTime(Date.parse(release.publishedAt))} ago` : ''}`}</T></View>
+        <View style={{ flex: 1 }}><T style="footnote" weight="600" styleOverride={{ fontSize: 14 }}>{`Version ${release.version} available`}</T><T style="caption1" color="secondary">{`${mb(release.size)}${release.publishedAt ? ` · released ${ago(Date.parse(release.publishedAt))}` : ''}`}</T></View>
       </View>
       {release.notes ? <T style="caption1" color="secondary" numberOfLines={6}>{release.notes.replace(/[#*`]/g, '').trim()}</T> : null}
       {st.kind === 'downloading' ? <View style={{ gap: 6 }}>
