@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Loading } from '../components/Loader';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
@@ -8,12 +8,14 @@ import { useApp } from '../state/app';
 import { useDialog } from '../components/Dialog';
 import { Empty, ErrorNotice, Header, IconButton, Screen, T } from '../components/ui';
 import { errorMessage } from '../lib/harness';
-import { TermBuffer } from '../lib/ansi';
+import * as SecureStore from 'expo-secure-store';
+import { XTerm, type XTermHandle } from '../components/XTerm';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 type TermInfo = { id: string; title: string; cwd: string; state: 'running' | 'exited' | 'failed'; exitCode: number | null; shell?: { name: string } };
-const COLS = 64, ROWS = 32;
-const KEYS: { label: string; data: string }[] = [{ label: 'Ctrl-C', data: '\u0003' }, { label: 'Tab', data: '\t' }, { label: '↑', data: '\u001b[A' }, { label: '↓', data: '\u001b[B' }, { label: 'Esc', data: '\u001b' }, { label: 'Ctrl-D', data: '\u0004' }, { label: 'Ctrl-L', data: '\u000c' }];
+const COLS = 80, ROWS = 24;
+const KEYS: { label: string; data: string }[] = [{ label: 'Esc', data: '\u001b' }, { label: 'Tab', data: '\t' }, { label: '^C', data: '\u0003' }, { label: '^D', data: '\u0004' }, { label: '←', data: '\u001b[D' }, { label: '↑', data: '\u001b[A' }, { label: '↓', data: '\u001b[B' }, { label: '→', data: '\u001b[C' }, { label: 'Home', data: '\u001b[H' }, { label: 'End', data: '\u001b[F' }, { label: 'PgUp', data: '\u001b[5~' }, { label: 'PgDn', data: '\u001b[6~' }, { label: '|', data: '|' }, { label: '~', data: '~' }, { label: '/', data: '/' }, { label: '-', data: '-' }];
+const FONT_KEY = 'dsh.terminal.fontSize';
 
 /** Workspace terminal over the official terminal API (create / follow / write / resize / close). */
 export default function Terminal() {
@@ -62,47 +64,81 @@ export default function Terminal() {
 
 function TerminalView({ sessionId, id, onState }: { sessionId: string; id: string; onState: (info: TermInfo) => void }) {
   const { client, colors } = useApp();
-  const buffer = useRef(new TermBuffer(3000, COLS)); /* width must match terminal/resize */ const [text, setText] = useState(''); const [line, setLine] = useState('');
+  const term = useRef<XTermHandle>(null);
   const [attachment] = useState(() => `att-${randomUUID().slice(0, 12)}`);
   const [state, setState] = useState<TermInfo['state']>('running'); const [error, setError] = useState('');
-  const scroll = useRef<ScrollView>(null);
+  const [fontSize, setFontSize] = useState(12); const [ctrl, setCtrl] = useState(false);
+  const [ready, setReady] = useState(false);
+  const pending = useRef<string[]>([]); const snapshot = useRef<string | null>(null); const readyRef = useRef(false);
   const onStateRef = useRef(onState);
   useEffect(() => { onStateRef.current = onState; }, [onState]);
+  useEffect(() => { void SecureStore.getItemAsync(FONT_KEY).then(v => { const n = Number(v); if (n >= 8 && n <= 24) { setFontSize(n); term.current?.setFontSize(n); } }).catch(() => {}); }, []);
 
   useEffect(() => {
     if (!client) return;
-    let frame = 0;
-    const flush = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => setText(buffer.current.text())); };
+    // Output is buffered until xterm reports ready, then flushed in order.
+    const out = (fn: (t: XTermHandle) => void, raw: () => void) => { if (term.current && readyRef.current) fn(term.current); else raw(); };
     const stop = client.follow('terminal/follow', { agentId: sessionId, id, attachmentId: attachment }, f => {
-      if (f.type === 'snapshot') { buffer.current.reset(f.screen ?? ''); setState(f.info?.state ?? 'running'); flush(); }
-      else if (f.type === 'output') { buffer.current.write(f.data ?? ''); flush(); }
+      if (f.type === 'snapshot') { setState(f.info?.state ?? 'running'); out(t => t.reset(f.screen ?? ''), () => { snapshot.current = f.screen ?? ''; pending.current = []; }); }
+      else if (f.type === 'output') out(t => t.write(f.data ?? ''), () => pending.current.push(f.data ?? ''));
       else if (f.type === 'state') { setState(f.info?.state); onStateRef.current(f.info); }
       else if (f.type === 'stream-error') setError(f.error?.message ?? 'Terminal stream ended.');
     });
-    void client.call('terminal/resize', { agentId: sessionId, id, attachmentId: attachment, cols: COLS, rows: ROWS }).catch(() => {});
-    return () => { cancelAnimationFrame(frame); stop(); };
+    return () => stop();
   }, [client, sessionId, id, attachment]);
+  const onReady = () => {
+    readyRef.current = true; setReady(true);
+    if (snapshot.current !== null) term.current?.reset(snapshot.current);
+    for (const d of pending.current) term.current?.write(d);
+    snapshot.current = null; pending.current = [];
+  };
 
-  const send = (data: string) => { if (!client || state !== 'running') return; void client.call('terminal/write', { agentId: sessionId, id, attachmentId: attachment, data }).catch(e => setError(errorMessage(e))); };
-  const submit = () => { send(`${line}\r`); setLine(''); };
+  // Writes must reach the PTY in order. Each keystroke used to be its own request, and parallel
+  // requests can land out of order ("clear" -> "celar"), so queue them: one request in flight,
+  // and anything typed meanwhile is batched into the next request.
+  const outbox = useRef({ buf: '', busy: false });
+  const flush = useCallback(async () => {
+    const o = outbox.current; if (o.busy || !o.buf || !client) return;
+    o.busy = true;
+    try {
+      while (o.buf) { const data = o.buf; o.buf = ''; await client.call('terminal/write', { agentId: sessionId, id, attachmentId: attachment, data }); }
+    } catch (e) { setError(errorMessage(e)); o.buf = ''; } finally { o.busy = false; }
+  }, [client, sessionId, id, attachment]);
+  const send = (data: string) => { if (!client || state !== 'running') return; outbox.current.buf += data; void flush(); };
+  // With the Ctrl key latched, the next typed letter becomes its control code (Ctrl-A … Ctrl-Z, Ctrl-[ etc.).
+  const onInput = (data: string) => {
+    if (ctrl && data.length === 1) { const c = data.toUpperCase().charCodeAt(0); setCtrl(false); if (c >= 64 && c <= 95) { send(String.fromCharCode(c - 64)); return; } }
+    send(data);
+  };
+  const resizeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const onResize = (cols: number, rows: number) => { clearTimeout(resizeTimer.current); resizeTimer.current = setTimeout(() => { void client?.call('terminal/resize', { agentId: sessionId, id, attachmentId: attachment, cols, rows }).catch(() => {}); }, 120); };
+  const zoom = (d: number) => setFontSize(f => { const n = Math.max(8, Math.min(24, f + d)); term.current?.setFontSize(n); void SecureStore.setItemAsync(FONT_KEY, String(n)).catch(() => {}); return n; });
 
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-    <View style={{ flex: 1, marginHorizontal: 10, borderRadius: 14, overflow: 'hidden', backgroundColor: colors.dark ? '#0a0a0b' : '#1b1d21', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
-      <ScrollView ref={scroll} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })} contentContainerStyle={{ padding: 10 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}><Text selectable style={{ color: '#e6e6e6', fontFamily: MONO, fontSize: 11, lineHeight: 15 }}>{text || ' '}</Text></ScrollView>
-      </ScrollView>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 10, paddingBottom: 6 }}>
+      <T style="caption2" color="tertiary">{`${fontSize}px`}</T>
+      <Mini label="A−" a11y="Smaller text" onPress={() => zoom(-1)} />
+      <Mini label="A+" a11y="Larger text" onPress={() => zoom(1)} />
+      <Mini label="⌨" a11y="Show keyboard" onPress={() => term.current?.focus()} />
+    </View>
+    <View style={{ flex: 1, marginHorizontal: 10, borderRadius: 14, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
+      <XTerm ref={term} fontSize={fontSize} dark={colors.dark} onInput={onInput} onResize={onResize} onReady={onReady} />
+      {!ready ? <View style={{ position: 'absolute', inset: 0, backgroundColor: colors.dark ? '#0a0a0b' : '#1b1d21' }}><Loading label="Starting terminal…" /></View> : null}
       {state !== 'running' ? <View style={{ padding: 8, backgroundColor: '#00000066' }}><T style="caption1" color="#ffb74d" align="center">Shell {state}. Open a new terminal to continue.</T></View> : null}
     </View>
     <ErrorNotice message={error} />
-    <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 8, gap: 6 }}>
-      {KEYS.map(k => <Pressable key={k.label} accessibilityRole="button" accessibilityLabel={`Send ${k.label}`} onPress={() => send(k.data)} style={({ pressed }) => ({ height: 30, minWidth: 40, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><Text style={{ color: colors.text, fontFamily: MONO, fontSize: 11 }}>{k.label}</Text></Pressable>)}
+    <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 8, gap: 6 }}>
+      <KeyBtn label="Ctrl" active={ctrl} onPress={() => setCtrl(v => !v)} />
+      {KEYS.map(k => <KeyBtn key={k.label} label={k.label} onPress={() => send(k.data)} />)}
     </ScrollView>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8 }}>
-      <View style={{ flex: 1, height: 42, borderRadius: 21, flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 4, backgroundColor: colors.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge }}>
-        <Text style={{ color: colors.live, fontFamily: MONO, fontSize: 13, marginRight: 6 }}>$</Text>
-        <TextInput accessibilityLabel="Terminal command" value={line} onChangeText={setLine} onSubmitEditing={submit} blurOnSubmit={false} returnKeyType="send" autoCapitalize="none" autoCorrect={false} spellCheck={false} placeholder="Type a command" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontFamily: MONO, fontSize: 13, paddingVertical: 0 }} />
-        <Pressable accessibilityRole="button" accessibilityLabel="Run command" onPress={submit} hitSlop={5} style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: pressed ? 0.7 : 1 })}><Ionicons name="return-down-back" size={17} color={colors.bg} /></Pressable>
-      </View>
-    </View>
   </KeyboardAvoidingView>;
+}
+
+function KeyBtn({ label, onPress, active }: { label: string; onPress: () => void; active?: boolean }) {
+  const { colors } = useApp();
+  return <Pressable accessibilityRole="button" accessibilityLabel={`Send ${label}`} accessibilityState={{ selected: !!active }} onPress={onPress} style={({ pressed }) => ({ height: 32, minWidth: 42, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? colors.primary : colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><Text style={{ color: active ? colors.bg : colors.text, fontFamily: MONO, fontSize: 12 }}>{label}</Text></Pressable>;
+}
+function Mini({ label, a11y, onPress }: { label: string; a11y: string; onPress: () => void }) {
+  const { colors } = useApp();
+  return <Pressable accessibilityRole="button" accessibilityLabel={a11y} hitSlop={6} onPress={onPress} style={({ pressed }) => ({ height: 28, minWidth: 34, paddingHorizontal: 8, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><Text style={{ color: colors.text, fontSize: 12, fontWeight: '600' }}>{label}</Text></Pressable>;
 }

@@ -1,4 +1,5 @@
 import { Stack } from 'expo-router';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from '../state/app';
 import { ActionMenuProvider } from '../components/ActionMenu';
@@ -18,4 +19,4 @@ function Navigation() {
     </Stack>
   </>;
 }
-export default function RootLayout() { return <AppProvider><UpdateProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></UpdateProvider></AppProvider>; }
+export default function RootLayout() { return <GestureHandlerRootView style={{ flex: 1 }}><AppProvider><UpdateProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></UpdateProvider></AppProvider></GestureHandlerRootView>; }

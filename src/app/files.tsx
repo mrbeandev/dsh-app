@@ -1,17 +1,15 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Dots, Loading, SkeletonRows } from '../components/Loader';
+import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SkeletonRows } from '../components/Loader';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../state/app';
-import { useDialog } from '../components/Dialog';
 import { Empty, ErrorNotice, Header, IconButton, Screen, SearchField, T } from '../components/ui';
-import { Sheet } from '../components/Sheet';
 import { errorMessage } from '../lib/harness';
-import { downloadBytes, formatSize, isTextLike, listDirectory, readText, type FileEntry } from '../lib/workspaceFiles';
-import { openFile, saveDownload, shareFile, type SavedFile } from '../lib/downloads';
+import { formatSize, listDirectory, mtimeOf, sortEntries, statFile, type FileEntry, type SortDir, type SortKey } from '../lib/workspaceFiles';
+import { useActionMenu } from '../components/ActionMenu';
+import { relativeTime } from '../lib/time';
 
-const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 function iconFor(e: FileEntry): IconName {
   if (e.type === 'directory') return 'folder';
@@ -30,23 +28,42 @@ export default function Files() {
   const { client, colors } = useApp();
   const [path, setPath] = useState(''); const [entries, setEntries] = useState<FileEntry[] | null>(null); const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState(''); const [query, setQuery] = useState(''); const [showHidden, setShowHidden] = useState(false);
-  const [open, setOpen] = useState<FileEntry | null>(null);
+  const menu = useActionMenu();
+  const [sortKey, setSortKey] = useState<SortKey>('updated'); const [sortDir, setSortDir] = useState<SortDir>('desc');
+  // Modified times come from each entry's stat version (one small request per entry, cached per folder).
+  const [mtimes, setMtimes] = useState<Record<string, number>>({});
 
+  const join = (name: string) => (path ? `${path}/${name}` : name);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     if (!client) return; let active = true;
-    listDirectory(client, sessionId, path).then(l => { if (!active) return; setError(''); setEntries([...l.entries].sort((x, y) => (x.type === 'directory' ? 0 : 1) - (y.type === 'directory' ? 0 : 1) || x.name.localeCompare(y.name))); setTruncated(l.truncated); })
+    listDirectory(client, sessionId, path).then(l => { if (!active) return; setError(''); setEntries([...l.entries]); setTruncated(l.truncated); })
       .catch(e => { if (active) { setError(errorMessage(e)); setEntries([]); } });
     return () => { active = false; };
   }, [client, sessionId, path, reload]);
+  useEffect(() => {
+    if (!client || !entries?.length) return; let active = true;
+    const need = entries.filter(e => mtimes[join(e.name)] === undefined).slice(0, 300);
+    let i = 0;
+    const worker = async () => { while (active && i < need.length) { const e = need[i++]; try { const st = await statFile(client, sessionId, join(e.name)); const t = mtimeOf(st.version); if (active && t) setMtimes(m => ({ ...m, [join(e.name)]: t })); } catch { /* folders or unreadable: no time */ } } };
+    void Promise.all([worker(), worker(), worker(), worker()]);
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, sessionId, entries]);
   const go = (p: string) => { setEntries(null); setError(''); setPath(p); };
 
   const crumbs = path ? path.split('/').filter(Boolean) : [];
-  const shown = (entries ?? []).filter(e => (showHidden || !e.name.startsWith('.')) && e.name.toLowerCase().includes(query.toLowerCase()));
-  const join = (name: string) => (path ? `${path}/${name}` : name);
+  const shown = sortEntries((entries ?? []).filter(e => (showHidden || !e.name.startsWith('.')) && e.name.toLowerCase().includes(query.toLowerCase())).map(e => ({ ...e, mtime: mtimes[join(e.name)] })), sortKey, sortDir);
+  // Folders stay on top in name order: the Harness can stat files only, so folders have no time or size.
+  const sortLabel = `${sortKey === 'updated' ? 'Last updated' : sortKey === 'name' ? 'Name' : 'Size'} · ${sortKey === 'name' ? (sortDir === 'asc' ? 'A–Z' : 'Z–A') : sortKey === 'updated' ? (sortDir === 'desc' ? 'newest first' : 'oldest first') : (sortDir === 'desc' ? 'largest first' : 'smallest first')}`;
+  const openSort = () => menu({ title: 'Sort', subtitle: `${sortLabel}${sortKey === 'name' ? '' : ' · folders stay on top'}`, actions: [
+    ...(['updated', 'name', 'size'] as SortKey[]).map(k => ({ label: k === 'updated' ? 'Last Updated' : k === 'name' ? 'Name' : 'Size', icon: (sortKey === k ? 'radio-button-on' : 'radio-button-off') as IconName, onPress: () => { setSortKey(k); setSortDir(k === 'name' ? 'asc' : 'desc'); } })),
+    { label: sortDir === 'asc' ? 'Switch to Descending' : 'Switch to Ascending', icon: (sortDir === 'asc' ? 'arrow-down' : 'arrow-up') as IconName, onPress: () => setSortDir(d => (d === 'asc' ? 'desc' : 'asc')) },
+  ] });
 
   return <Screen>
     <Header title="Files" subtitle={root ? root.split('/').filter(Boolean).pop() : undefined} back>
+      <IconButton icon="swap-vertical" size={18} label={`Sort: ${sortLabel}`} onPress={openSort} />
       <IconButton icon={showHidden ? 'eye-outline' : 'eye-off-outline'} size={18} label={showHidden ? 'Hide hidden files' : 'Show hidden files'} onPress={() => setShowHidden(v => !v)} />
       <IconButton icon="refresh" size={18} label="Refresh" onPress={() => { setEntries(null); setReload(r => r + 1); }} />
     </Header>
@@ -56,6 +73,7 @@ export default function Files() {
         {crumbs.map((c, i) => <View key={i} style={{ flexDirection: 'row', alignItems: 'center' }}><Ionicons name="chevron-forward" size={11} color={colors.tertiary} /><Pressable accessibilityRole="button" onPress={() => go(crumbs.slice(0, i + 1).join('/'))} style={{ paddingVertical: 6, paddingHorizontal: 4 }}><T style="footnote" weight={i === crumbs.length - 1 ? '600' : '400'} color={i === crumbs.length - 1 ? 'primary' : 'secondary'}>{c}</T></Pressable></View>)}
       </ScrollView>
       <SearchField value={query} onChangeText={setQuery} placeholder="Filter this folder" />
+      <Pressable accessibilityRole="button" onPress={openSort} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}><Ionicons name="swap-vertical" size={12} color={colors.muted} /><T style="caption1" color="secondary">{sortLabel}</T></Pressable>
     </View>
     <ErrorNotice message={error} />
     {entries === null ? <SkeletonRows rows={9} indent={false} /> : <FlatList
@@ -64,61 +82,14 @@ export default function Files() {
       ListHeaderComponent={path ? <Pressable accessibilityRole="button" accessibilityLabel="Up one folder" onPress={() => go(crumbs.slice(0, -1).join('/'))} style={({ pressed }) => [s.row, { opacity: pressed ? 0.5 : 1 }]}><Ionicons name="arrow-up" size={17} color={colors.muted} /><T style="footnote" color="secondary">..</T></Pressable> : null}
       ListEmptyComponent={!error ? <Empty icon="folder-open-outline" title={query ? 'No Matches' : 'Empty Folder'} detail={query ? 'Nothing here matches your filter.' : showHidden ? 'This folder has no files.' : 'No visible files. Tap the eye to show hidden files.'} /> : null}
       ListFooterComponent={truncated ? <T style="caption1" color="secondary" align="center">Folder has more entries than the Harness lists at once.</T> : null}
-      renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={`${item.type === 'directory' ? 'Folder' : 'File'} ${item.name}`} onPress={() => item.type === 'directory' ? go(join(item.name)) : setOpen(item)} style={({ pressed }) => [s.row, { backgroundColor: pressed ? colors.fill : 'transparent' }]}>
+      renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={`${item.type === 'directory' ? 'Folder' : 'File'} ${item.name}`} onPress={() => item.type === 'directory' ? go(join(item.name)) : router.push({ pathname: '/file', params: { sessionId, path: join(item.name), size: String(item.size ?? '') } })} style={({ pressed }) => [s.row, { backgroundColor: pressed ? colors.fill : 'transparent' }]}>
         <Ionicons name={iconFor(item)} size={18} color={item.type === 'directory' ? colors.primary : colors.muted} />
         <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1, fontSize: 14 }}>{item.name}</T>
-        {item.type === 'file' ? <T style="caption2" color="secondary">{formatSize(item.size)}</T> : <Ionicons name="chevron-forward" size={13} color={colors.tertiary} />}
+        <View style={{ alignItems: 'flex-end' }}>{item.type === 'file' ? <T style="caption2" color="secondary">{formatSize(item.size)}</T> : null}{item.mtime ? <T style="caption2" color="tertiary">{relativeTime(item.mtime)}</T> : null}</View>
+        {item.type === 'directory' ? <Ionicons name="chevron-forward" size={13} color={colors.tertiary} /> : null}
       </Pressable>}
     />}
-    {open ? <FileSheet sessionId={sessionId} path={join(open.name)} entry={open} onClose={() => setOpen(null)} /> : null}
   </Screen>;
-}
-
-function FileSheet({ sessionId, path, entry, onClose }: { sessionId: string; path: string; entry: FileEntry; onClose: () => void }) {
-  const { client, colors } = useApp(); const dialog = useDialog();
-  const [preview, setPreview] = useState<string | null>(null); const [previewNote, setPreviewNote] = useState('');
-  const [progress, setProgress] = useState<number | null>(null); const [saved, setSaved] = useState<SavedFile | null>(null); const [error, setError] = useState('');
-  const textual = isTextLike(entry.name) && (entry.size ?? 0) <= 2 * 1024 * 1024;
-
-  useEffect(() => {
-    if (!client || !textual) return; let active = true;
-    void readText(client, sessionId, path, 1, 400).then(p => { if (active) { setPreview(p.text); if (!p.eof) setPreviewNote('Showing the first 400 lines. Download for the full file.'); } })
-      .catch(e => { if (active) setPreviewNote(/not-text/.test(String((e as any)?.code ?? errorMessage(e))) ? 'Binary file — no text preview.' : errorMessage(e)); });
-    return () => { active = false; };
-  }, [client, sessionId, path, textual]);
-
-  const download = async () => {
-    if (!client) return; setError(''); setProgress(0);
-    try {
-      const { bytes } = await downloadBytes(client, sessionId, path, (done, total) => setProgress(total ? done / total : 1));
-      const result = await saveDownload(entry.name, bytes); setSaved(result);
-    } catch (e) { setError(errorMessage(e)); } finally { setProgress(null); }
-  };
-
-  return <Sheet visible onClose={onClose} title={entry.name} height={0.78}>
-    <View style={{ paddingHorizontal: 14, gap: 10, flex: 1 }}>
-      <T style="caption1" color="secondary" numberOfLines={1}>{path} · {formatSize(entry.size)}</T>
-      {saved ? <View style={{ borderRadius: 14, padding: 12, gap: 10, backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Ionicons name="checkmark-circle" size={18} color={colors.primary} /><View style={{ flex: 1 }}><T style="footnote" weight="600">Downloaded</T><T style="caption1" color="secondary" numberOfLines={2}>{saved.publicUri ? `Saved to ${saved.folderName ?? 'your chosen folder'} as ${saved.name}` : `Saved in the app as ${saved.name}`}</T></View></View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Pill icon="open-outline" label="Open" onPress={() => void openFile(saved).catch(e => dialog.alert('No App to Open This File', `Install an app that opens .${entry.name.split('.').pop()} files, or use Share.\n\n${errorMessage(e)}`, 'warning'))} />
-          <Pill icon="share-outline" label="Share" onPress={() => void shareFile(saved).catch(e => dialog.alert('Couldn’t Share', errorMessage(e), 'danger'))} />
-        </View>
-      </View> : <Pressable accessibilityRole="button" accessibilityLabel={`Download ${entry.name} to this device`} disabled={progress !== null} onPress={() => void download()} style={({ pressed }) => ({ height: 44, borderRadius: 22, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: pressed || progress !== null ? 0.7 : 1 })}>
-        {progress !== null ? <><Dots size="sm" color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>{Math.round(progress * 100)}%</T></> : <><Ionicons name="download-outline" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>Download to Device</T></>}
-      </Pressable>}
-      <ErrorNotice message={error} />
-      {textual ? <View style={{ flex: 1, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.dark ? '#18181b' : '#f6f8fa', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
-        {preview === null && !previewNote ? <Loading label="Loading preview…" size="md" /> : <ScrollView contentContainerStyle={{ padding: 10 }}><ScrollView horizontal showsHorizontalScrollIndicator={false}><Text selectable style={{ color: colors.text, fontFamily: MONO, fontSize: 11, lineHeight: 16 }}>{preview ?? ''}</Text></ScrollView></ScrollView>}
-      </View> : <View style={{ alignItems: 'center', paddingTop: 20, gap: 6 }}><Ionicons name={iconFor(entry)} size={40} color={colors.tertiary} /><T style="footnote" color="secondary" align="center">No preview for this file type. Download it to open in another app.</T></View>}
-      {previewNote ? <T style="caption1" color="secondary">{previewNote}</T> : null}
-    </View>
-  </Sheet>;
-}
-
-function Pill({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
-  const { colors } = useApp();
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ flex: 1, height: 40, borderRadius: 20, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bubble, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.6 : 1 })}><Ionicons name={icon} size={16} color={colors.text} /><T style="footnote" weight="600">{label}</T></Pressable>;
 }
 
 const s = StyleSheet.create({ row: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, borderRadius: 10 } });

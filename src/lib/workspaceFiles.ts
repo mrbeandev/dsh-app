@@ -55,5 +55,38 @@ export function formatSize(n?: number) {
 
 const MIME: Record<string, string> = { txt: 'text/plain', md: 'text/markdown', json: 'application/json', js: 'text/javascript', ts: 'text/plain', tsx: 'text/plain', py: 'text/x-python', html: 'text/html', css: 'text/css', csv: 'text/csv', xml: 'text/xml', yml: 'text/plain', yaml: 'text/plain', log: 'text/plain', sh: 'text/plain', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', pdf: 'application/pdf', zip: 'application/zip', apk: 'application/vnd.android.package-archive', mp3: 'audio/mpeg', mp4: 'video/mp4', mov: 'video/quicktime', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
 export function mimeOf(name: string) { return MIME[name.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream'; }
-export function isTextLike(name: string) { return /^(text\/|application\/(json|javascript|xml))/.test(mimeOf(name)) || !name.includes('.') || /^\./.test(name); }
+/** Plain-text files the viewer can show directly (source, config, docs, data, logs). */
+const TEXT_EXT = new Set(['txt','md','markdown','mdx','rst','log','json','jsonc','json5','ndjson','yaml','yml','toml','ini','cfg','conf','env','properties','xml','html','htm','css','scss','sass','less','js','mjs','cjs','jsx','ts','tsx','mts','cts','vue','svelte','astro','py','pyi','rb','go','rs','java','kt','kts','scala','swift','m','mm','c','h','cc','cpp','cxx','hpp','cs','fs','php','pl','lua','r','dart','ex','exs','erl','hs','clj','sql','graphql','gql','proto','sh','bash','zsh','fish','ps1','bat','cmd','dockerfile','makefile','cmake','gradle','tf','hcl','nix','lock','gitignore','gitattributes','editorconfig','prettierrc','eslintrc','npmrc','svg','csv','tsv','diff','patch','srt','vtt','tex','bib','adoc','org']);
+export function isTextLike(name: string) {
+  const lower = name.toLowerCase(); const ext = lower.includes('.') ? lower.split('.').pop()! : lower;
+  return TEXT_EXT.has(ext) || /^(text\/|application\/(json|javascript|xml))/.test(mimeOf(name)) || !name.includes('.') || /^\./.test(name) || /^(dockerfile|makefile|license|readme|changelog|procfile|gemfile|rakefile)$/i.test(name);
+}
 export function isImage(name: string) { return mimeOf(name).startsWith('image/') && !name.endsWith('.svg'); }
+
+/**
+ * Modified time from a stat version. dsh-fs-local encodes versions as `dev:ino:size:mtimeNs:ctimeNs`;
+ * other backends may differ, so anything unparsable yields undefined (sorts last).
+ */
+export function mtimeOf(version: string | undefined): number | undefined {
+  const parts = String(version ?? '').split(':');
+  if (parts.length < 5) return undefined;
+  const ns = Number(parts[3]);
+  return Number.isFinite(ns) && ns > 0 ? Math.round(ns / 1e6) : undefined;
+}
+
+export type SortKey = 'updated' | 'name' | 'size';
+export type SortDir = 'desc' | 'asc';
+/** Folders always first; then by the chosen key. Unknown times/sizes go last regardless of direction. */
+export function sortEntries<T extends FileEntry & { mtime?: number }>(entries: T[], key: SortKey, dir: SortDir): T[] {
+  const sign = dir === 'asc' ? 1 : -1;
+  const val = (e: T) => (key === 'size' ? e.size : key === 'updated' ? e.mtime : undefined);
+  return [...entries].sort((a, b) => {
+    const fa = a.type === 'directory' ? 0 : 1, fb = b.type === 'directory' ? 0 : 1;
+    if (fa !== fb) return fa - fb;
+    if (key === 'name') return sign * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    const va = val(a), vb = val(b);
+    if (va === undefined && vb === undefined) return a.name.localeCompare(b.name);
+    if (va === undefined) return 1; if (vb === undefined) return -1;
+    return sign * (va - vb) || a.name.localeCompare(b.name);
+  });
+}

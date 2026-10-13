@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 import { SkeletonRows } from '../components/Loader';
 import { UpdateBanner } from '../components/UpdateCard';
@@ -23,12 +23,24 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const target = useRef<View>(null);
   const [query, setQuery] = useState(''); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState('');
-  const [filter, setFilter] = useState<Filter>('All'); const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<Filter>('All'); // Workspace expansion: explicit user choice wins; otherwise all start collapsed when there are more than 5.
+  const [openState, setOpenState] = useState<Record<string, boolean>>({});
+  // Per-workspace page size for long thread lists (shown 10 at a time when a workspace has more than 8).
+  const [shown, setShown] = useState<Record<string, number>>({});
   const live = status === 'connected';
   const rows = useMemo(() => sessions.filter(x => !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || (live && x.running))), [sessions, archived, query, filter, live]);
-  const sections = useMemo(() => groupWorkspaces(rows, workspaces).filter(g => g.sessions.length || (!query && filter === 'All')).map(g => ({ ...g, sessions: [...g.sessions].sort((a, b) => Number(pinned.includes(b.sessionId)) - Number(pinned.includes(a.sessionId))) })).map(g => ({ ...g, data: collapsed.has(g.id) && !query ? [] : g.sessions })), [rows, workspaces, query, filter, collapsed, pinned]);
+  const groups = useMemo(() => groupWorkspaces(rows, workspaces).filter(g => g.sessions.length || (!query && filter === 'All')).map(g => ({ ...g, sessions: [...g.sessions].sort((a, b) => Number(pinned.includes(b.sessionId)) - Number(pinned.includes(a.sessionId))) })), [rows, workspaces, query, filter, pinned]);
+  const collapseByDefault = groups.length > 5;
+  const isOpen = useCallback((id: string) => !!query || (openState[id] ?? !collapseByDefault), [query, openState, collapseByDefault]);
+  const sections = useMemo(() => groups.map(g => {
+    if (!isOpen(g.id)) return { ...g, data: [] as typeof g.sessions, more: 0 };
+    if (query || g.sessions.length <= 8) return { ...g, data: g.sessions, more: 0 };
+    const limit = shown[g.id] ?? 10;
+    return { ...g, data: g.sessions.slice(0, limit), more: Math.max(0, g.sessions.length - limit) };
+  }), [groups, isOpen, query, shown]);
   const workingCount = sessions.filter(x => live && x.running).length;
-  const toggle = (id: string) => setCollapsed(p => { const next = new Set(p); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const toggle = (id: string) => setOpenState(p => ({ ...p, [id]: !isOpen(id) }));
+  const showMore = (id: string) => setShown(p => ({ ...p, [id]: (p[id] ?? 10) + 10 }));
   const reload = async () => { setRefreshing(true); try { await refresh(); setError(''); } catch (e) { setError(errorMessage(e)); } finally { setRefreshing(false); } };
   const host = client ? new URL(client.connection.url).host : savedUrl ? new URL(savedUrl).host : '';
   const statusText = !host ? 'Not connected' : live ? host : status === 'connecting' ? `${host} · Connecting…` : `${host} · Offline`;
@@ -79,7 +91,7 @@ export default function Home() {
             <T style="caption1" color="secondary">Last updated</T>
           </View>
         </View></>}
-        renderSectionHeader={({ section }) => { const open = !(collapsed.has(section.id) && !query); const runningHere = section.sessions.some(x => live && x.running); return <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 6, marginTop: 8 }}>
+        renderSectionHeader={({ section }) => { const open = isOpen(section.id); const runningHere = section.sessions.some(x => live && x.running); return <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 6, marginTop: 8 }}>
           <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} threads`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
             <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={colors.muted} style={{ width: 12 }} />
             <Ionicons name={open ? 'folder-open-outline' : 'folder-outline'} size={14} color={colors.muted} />
@@ -89,6 +101,7 @@ export default function Home() {
           </Pressable>
           <IconButton icon="ellipsis-horizontal" size={17} tint={colors.muted} label={`Options for ${section.title}`} onPress={() => workspaceMenu(section)} />
         </View>; }}
+        renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(10, section.more)} more threads in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 19, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(10, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
         renderItem={({ item }) => {
           const active = item.running && live; const attention = pending.some(p => p.agentId === item.sessionId);
           return <View style={{ marginLeft: 19, paddingLeft: 10, paddingRight: 12, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator }}>

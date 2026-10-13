@@ -48,14 +48,14 @@ The app exchanges the token for a session cookie, exactly like the DSH Web UI. T
 - Approvals, questions and **plan review** (approve or keep planning with feedback).
 - Goal and to-do strip above the composer (pause, resume, edit, clear).
 - **Rewind to any earlier message** of yours and resend it (app feature; no Harness plugin needed).
-- **Pinch** the chat (or tap the list icon) to browse every prompt with its date and jump to it.
+- **Pinch** the chat with two fingers (or tap the list icon) to browse every prompt with its date and jump to it.
 - Opens at the latest message; older history loads as you scroll up.
 
 **Thread details** — model, persona and access mode; context usage, token usage (cache hit, input, output) and session statistics (turns, steps, LLM/tool time, TTFT, TPS); copy buttons for IDs and paths.
 
 **Workspace tools**
-- **Files** — browse, preview, and download any file to your phone (byte-exact, any size), then open or share it.
-- **Terminal** — live shells in the thread's workspace, with special keys.
+- **Files** — sort by name, date or size; full-screen previews for images, PDFs, spreadsheets/CSV and text; download any file to your phone (byte-exact, any size), then open or share it.
+- **Terminal** — a real terminal emulator (xterm.js): colours, full-screen programs like `top`/`vim`, a key bar (Ctrl, Esc, Tab, arrows) and adjustable font size.
 - Add, rename and remove workspaces; new threads with access mode and persona.
 
 **Built for mobile** — per-Harness cache (SQLite) for instant start and offline reading; only the open thread streams live. Glass-style UI following Apple's Human Interface Guidelines, light and dark.
