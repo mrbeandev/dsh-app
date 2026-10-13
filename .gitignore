@@ -40,7 +40,6 @@ yarn-error.*
 /ios
 /android
 
-# local only (never commit): agent instructions and any NEW docs.
-# docs already tracked before 2026-10-13 stay tracked; new files under docs/ are ignored.
+# local only (never commit): agent instructions and project docs
 CLAUDE.md
-docs/*
+docs/

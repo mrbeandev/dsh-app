@@ -55,7 +55,6 @@ npx expo-doctor
 
 **UI building blocks** — reusable app dialog (`useDialog`: confirm/alert/prompt) instead of native alerts; animated loader and skeletons (`components/Loader.tsx`) everywhere data loads.
 
-Caching behavior and privacy: [docs/CACHING.md](docs/CACHING.md). Device checks: [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ### Work still required before release
 
