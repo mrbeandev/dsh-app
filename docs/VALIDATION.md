@@ -13,7 +13,7 @@ Not yet validated: real Harness authentication or execution, physical Android/iO
 
 ## Android device preparation
 
-ADB detects a connected Realme RMX3998. Termux (`com.termux`) and the existing Kotlin debug client (`com.labteto.dshmobile.debug`) are installed; Expo Go is not installed. Harness did not respond through an ADB forward to device port 3080. Device interaction is currently blocked by the screen lock; the owner opted to prepare the Android build while unlocking manually. No old app data was cleared and no Harness install was modified. Android CNG prebuild succeeded using the installed SDK and Java 21. Native compilation is being prepared separately; this does not yet constitute an on-device test.
+ADB detects a connected Realme RMX3998. Termux (`com.termux`) and the existing Kotlin debug client (`com.labteto.dshmobile.debug`) are installed; Expo Go is not installed. Harness did not respond through an ADB forward to device port 3080. Device interaction is currently blocked by the screen lock; the owner opted to prepare the Android build while unlocking manually. No old app data was cleared and no Harness install was modified. Android CNG prebuild and Android Hermes bundle export succeeded. The first native compile installed NDK 27.1 and build tools 36, then exposed that the system Java 21 installation is a runtime without `javac`. A portable full JDK is being used for the retry. This does not yet constitute an on-device test.
 
 ## Dependency advisories
 

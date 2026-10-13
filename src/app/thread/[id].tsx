@@ -15,6 +15,7 @@ export default function Thread() {
   const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState('');
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
   const list = useRef<FlatList>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
+  const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
   const session = sessions.find(x => x.sessionId === id);
   useEffect(() => {
     liveChunks.current.clear();
@@ -23,7 +24,9 @@ export default function Thread() {
       if (frame.type === 'stream-error') { setError(frame.error.message); return; }
       if (frame.type === 'snapshot') {
         setRecords((frame.records ?? []).filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event)); setCursor(frame.cursor); setHasMore(frame.hasMore); liveChunks.current.clear(); setLive('');
-        const chunks = expandStream(frame.assistantStream?.activeAttempt?.stream);
+        const active = frame.assistantStream?.activeAttempt;
+        const chunks = expandStream(active?.stream);
+        attempt.current = { id: active?.attemptId ?? '', next: active?.nextIndex ?? 0, valid: !!active && chunks.length === active.nextIndex };
         for (let i = 0; i < chunks.length; i++) liveChunks.current.set(i, chunks[i]);
         setLive(streamText([...liveChunks.current.values()]));
       }
@@ -36,8 +39,12 @@ export default function Thread() {
       }
       if (frame.type === 'assistant-stream') {
         const f = frame.frame;
-        if (f.type === 'start' || f.type === 'reset') { liveChunks.current.clear(); setLive(''); }
-        if (f.type === 'chunk') { liveChunks.current.set(f.index, f.chunk); setLive(streamText([...liveChunks.current.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c))); }
+        if (f.type === 'start') { attempt.current = { id: f.attemptId, next: 0, valid: true }; liveChunks.current.clear(); setLive(''); }
+        if (f.type === 'chunk' && attempt.current.valid) {
+          if (f.attemptId !== attempt.current.id || f.index !== attempt.current.next) { attempt.current.valid = false; liveChunks.current.clear(); setLive(''); return; }
+          attempt.current.next++; liveChunks.current.set(f.index, f.chunk); setLive(streamText([...liveChunks.current.values()]));
+        }
+        if (f.type === 'end' && f.outcome?.kind === 'abandoned') { attempt.current.valid = false; liveChunks.current.clear(); setLive(''); }
       }
     });
   }, [client, id, refresh]);
