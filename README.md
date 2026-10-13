@@ -42,10 +42,16 @@ npx expo-doctor
 - Thread listing/creation, history snapshot and earlier-message loading, prompt sending, command dispatch, streamed response text, stop generation.
 - Expandable tool/event details, approval decisions and structured question answers with connection-generation checks.
 - Title editing, provider/model selection, session projection inspection, credits in settings.
+- Per-Harness SQLite catalog/history caches (IndexedDB on web), immediate cached startup and offline chat reading.
+- Workspace groups sorted by latest activity; lightweight metadata/live-status streams with no background transcript fetching.
+- Open chats replace cached history with live snapshots and streaming; follow cancels on blur.
+- Per-Harness cache size/clear, manual workspace cache refresh, and near-bottom auto-scroll with jump-to-latest.
+
+Caching behavior and privacy: [docs/CACHING.md](docs/CACHING.md). Actual physical Android/Termux checks: [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ### Work still required before release
 
-This first foundation is **not yet full feature parity** with the Kotlin reference. Markdown/code rendering, image/file attachments, workspace file browsing, terminal, git/diffs, archives/pins, queue editing/steering, subagent management, presets, skills/plugins, goals/automations, full reasoning/replay folding, notifications, and native device validation remain on the roadmap. T3’s custom native navigation and liquid-glass behavior have not been transplanted; these screens are being rebuilt against standard Expo APIs. Do not mistake this initial client for a complete port.
+This first foundation is **not yet full feature parity** with the Kotlin reference. Markdown/code rendering, image/file attachments, workspace file browsing, terminal, git/diffs, archives/pins, queue editing/steering, subagent management, presets, skills/plugins, goals/automations, full reasoning/replay folding, notifications, and broader native device validation remain on the roadmap. T3’s custom native navigation and liquid-glass behavior have not been transplanted; these screens are being rebuilt against standard Expo APIs. Do not mistake this initial client for a complete port.
 
 ## Credits and references
 

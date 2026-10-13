@@ -18,6 +18,10 @@ describe('wire contract', () => {
     expect(projectEvent({ type: 'user/message', seq: 1, time: 0, data: { content: [{ type: 'text', text: 'Hello' }] } })?.text).toBe('Hello');
     expect(projectEvent({ type: 'assistant/message', seq: 2, time: 0, data: { message: { content: [{ type: 'text', text: 'Hi' }] } } })?.kind).toBe('assistant');
   });
+  it('hides injected runtime messages and shows missing provider credentials', () => {
+    expect(projectEvent({ type: 'user/message', seq: 1, time: 0, data: { source: { kind: 'runtime-context' }, content: 'Internal context' } })).toBeNull();
+    expect(projectEvent({ type: 'assistant/attempt', seq: 2, time: 0, data: { stream: [{ type: 'chunk', chunk: { type: 'finish', reason: { kind: 'error', failure: { code: 'MISSING_CREDENTIAL', message: 'No API key' } } } }] } })?.text).toContain('No API key');
+  });
   it('keeps unknown events inspectable', () => expect(projectEvent({ type: 'future/event', seq: 3, time: 0, data: { a: 1 } })?.kind).toBe('event'));
   it('reads projected titles', () => expect(sessionTitle({ sessionId: 'x', updatedAt: 0, blank: false, running: false, projections: { values: { title: 'Build app' } } })).toBe('Build app'));
 });

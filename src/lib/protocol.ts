@@ -33,13 +33,21 @@ export function textContent(value: unknown): string {
 export type TranscriptRow = { id: string; kind: 'user' | 'assistant' | 'tool' | 'event'; text: string; label?: string };
 export function projectEvent(event: WireEvent): TranscriptRow | null {
   const d = event.data;
-  if (event.type === 'message/user' || event.type === 'user/message') return { id: String(event.seq), kind: 'user', text: textContent(d.content) };
+  if (event.type === 'message/user' || event.type === 'user/message') {
+    const source = (d.source as { kind?: string } | undefined)?.kind;
+    if (source && source !== 'user') return null;
+    return { id: String(event.seq), kind: 'user', text: textContent(d.content) };
+  }
+  if (event.type === 'assistant/attempt') {
+    const failure = (d.stream as any[] | undefined)?.map(r => r.chunk?.reason?.failure).find(Boolean);
+    return failure ? { id: String(event.seq), kind: 'assistant', label: 'Generation failed', text: `Generation failed: ${failure.message ?? failure.code ?? 'Unknown model error'}` } : null;
+  }
   if (event.type === 'attempt/settled' || event.type === 'assistant/message') {
     const message = (d.message ?? d.assistantMessage) as any;
     const text = textContent(message?.content ?? d.content ?? d.chunks);
     return text ? { id: String(event.seq), kind: 'assistant', text } : null;
   }
   if (event.type.includes('tool')) return { id: String(event.seq), kind: 'tool', label: String(d.name ?? d.toolName ?? event.type), text: JSON.stringify(d, null, 2) };
-  if (['turn/start', 'turn/end', 'attempt/start', 'attempt/started'].includes(event.type)) return null;
+  if (['turn/start', 'turn/end', 'attempt/start', 'attempt/started', 'step/start', 'step/end', 'permission/preset', 'sandbox/mode', 'approval/policy', 'session/end-seed', 'model/selection', 'session/title', 'agent/inbox/spliced', 'request/header', 'request/context'].includes(event.type)) return null;
   return { id: String(event.seq), kind: 'event', label: event.type, text: JSON.stringify(d, null, 2) };
 }
