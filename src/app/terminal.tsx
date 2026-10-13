@@ -21,14 +21,13 @@ export default function Terminal() {
   const { client, colors, status } = useApp();
   const dialog = useDialog();
   const [terms, setTerms] = useState<TermInfo[] | null>(null); const [active, setActive] = useState<string>(''); const [error, setError] = useState('');
-  const [reload, setReload] = useState(0);
-  const load = () => setReload(r => r + 1);
+
   useEffect(() => {
     if (!client) return; let active = true;
     client.call<TermInfo[]>('terminal/list', { sessionId }).then(list => { if (!active) return; setTerms(list); setActive(a => (a && list.some(t => t.id === a) ? a : list[0]?.id ?? '')); })
       .catch(e => { if (active) { setError(errorMessage(e)); setTerms([]); } });
     return () => { active = false; };
-  }, [client, sessionId, reload]);
+  }, [client, sessionId]);
 
   const create = async () => {
     if (!client) return; setError('');
@@ -37,7 +36,11 @@ export default function Terminal() {
   };
   const close = async (t: TermInfo) => {
     if (!await dialog.confirm({ title: `Close ${t.title}?`, message: 'This ends the shell process on the Harness. Anything still running in it stops.', confirm: 'Close Terminal', destructive: true, icon: 'terminal-outline' })) return;
-    try { await client?.call('terminal/close', { agentId: sessionId, id: t.id }); load(); } catch (e) { setError(errorMessage(e)); }
+    // Optimistic: the Harness takes ~1 s to reap the shell, so drop the tab now and restore it only if the close fails.
+    const before = terms;
+    setTerms(ts => ts?.filter(x => x.id !== t.id) ?? ts);
+    setActive(a => (a === t.id ? before?.find(x => x.id !== t.id)?.id ?? '' : a));
+    client?.call('terminal/close', { agentId: sessionId, id: t.id }).catch(e => { setTerms(before); setActive(t.id); setError(`Couldn’t close ${t.title}: ${errorMessage(e)}`); });
   };
 
   return <Screen>
