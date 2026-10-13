@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { useApp } from '../state/app';
 import { useDialog } from '../components/Dialog';
-import { Empty, Header, Screen, T } from '../components/ui';
+import { Empty, Header, IconButton, Screen, T } from '../components/ui';
 import { Loading } from '../components/Loader';
 import { LiquidProgress } from '../components/LiquidProgress';
 import { PdfViewer, SheetViewer, toBase64 } from '../components/WebViewers';
@@ -16,6 +17,7 @@ import { openFile, saveDownload, shareFile, type SavedFile } from '../lib/downlo
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 type Kind = 'image' | 'pdf' | 'sheet' | 'text' | 'other';
 const PREVIEW_LIMIT = { image: 20 * 1048576, pdf: 25 * 1048576, sheet: 15 * 1048576 };
+const WRAP_KEY = 'dsh.viewer.wrap';
 
 function kindOf(name: string): Kind {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -38,6 +40,10 @@ export default function FileScreen() {
   const [error, setError] = useState(''); const [loadPct, setLoadPct] = useState(0);
   const [download, setDownload] = useState<number | null>(null); const [dlError, setDlError] = useState(''); const [saved, setSaved] = useState<SavedFile | null>(null);
   const [absolute, setAbsolute] = useState('');
+  // Line wrap preference for text files (remembered).
+  const [wrap, setWrap] = useState(true);
+  useEffect(() => { void SecureStore.getItemAsync(WRAP_KEY).then(v => { if (v === '0') setWrap(false); }).catch(() => {}); }, []);
+  const toggleWrap = () => setWrap(w => { void SecureStore.setItemAsync(WRAP_KEY, w ? '0' : '1').catch(() => {}); return !w; });
 
   useEffect(() => {
     if (!client) return; let active = true;
@@ -66,6 +72,7 @@ export default function FileScreen() {
 
   return <Screen>
     <Header title={name} subtitle={[formatSize(bytes), kind === 'other' ? '' : kind === 'sheet' ? 'Spreadsheet' : kind === 'pdf' ? 'PDF' : kind === 'image' ? 'Image' : 'Text'].filter(Boolean).join(' · ')} back>
+      {kind === 'text' ? <IconButton icon={wrap ? 'return-down-back' : 'reorder-four-outline'} size={18} label={wrap ? 'Turn off line wrap' : 'Wrap long lines'} onPress={toggleWrap} /> : null}
       {absolute ? <CopyButton value={absolute} label="Copy file path" /> : null}
     </Header>
     <View style={{ flex: 1 }}>
@@ -75,7 +82,7 @@ export default function FileScreen() {
           </ScrollView> : <Loading label={`Loading image… ${Math.round(loadPct * 100)}%`} />)
         : kind === 'pdf' ? (content ? <PdfViewer bytes={content} /> : <Loading label={`Loading PDF… ${Math.round(loadPct * 100)}%`} />)
         : kind === 'sheet' ? (content ? <SheetViewer bytes={content} name={name} /> : <Loading label={`Loading spreadsheet… ${Math.round(loadPct * 100)}%`} />)
-        : kind === 'text' ? (text ? <TextView lines={text.lines} more={text.more} /> : <Loading label="Loading…" />)
+        : kind === 'text' ? (text ? <TextView lines={text.lines} more={text.more} wrap={wrap} /> : <Loading label="Loading…" />)
         : <View style={{ flex: 1, justifyContent: 'center' }}><Empty icon="document-outline" title="No Preview" detail={`${mimeOf(name)} files can’t be shown here. Download it to open in another app.`} /></View>}
     </View>
     <View style={{ padding: 12, gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator, backgroundColor: colors.bg }}>
@@ -95,16 +102,37 @@ export default function FileScreen() {
   </Screen>;
 }
 
-/** Virtualised read-only text with line numbers (handles thousands of lines without lag). */
-function TextView({ lines, more }: { lines: string[]; more: boolean }) {
-  const { colors } = useApp(); const gutter = String(lines.length).length * 7 + 14;
-  return <FlatList data={lines} keyExtractor={(_, i) => String(i)} initialNumToRender={60} windowSize={15} style={{ backgroundColor: colors.dark ? '#111214' : '#fafbfc' }}
-    contentContainerStyle={{ paddingVertical: 8 }}
-    ListFooterComponent={more ? <T style="caption1" color="secondary" align="center">Showing the first 2,000 lines. Download for the full file.</T> : null}
-    renderItem={({ item, index }) => <View style={{ flexDirection: 'row' }}>
-      <Text style={{ width: gutter, textAlign: 'right', paddingRight: 8, color: colors.tertiary, fontFamily: MONO, fontSize: 11, lineHeight: 17 }}>{index + 1}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}><Text selectable style={{ color: colors.text, fontFamily: MONO, fontSize: 11.5, lineHeight: 17, paddingRight: 16 }}>{item || ' '}</Text></ScrollView>
-    </View>} />;
+/**
+ * Read-only text with line numbers.
+ * - Wrap on: a virtualised vertical list; long lines wrap and the gutter number aligns with the first row.
+ * - Wrap off: ONE horizontal scroller wraps the whole file (not each line), so a sideways swipe moves
+ *   every line together; inside it a vertical virtualised list. The gutter stays fixed on the left.
+ */
+function TextView({ lines, more, wrap }: { lines: string[]; more: boolean; wrap: boolean }) {
+  const { colors } = useApp();
+  const { width } = useWindowDimensions();
+  const gutter = String(lines.length).length * 7 + 14;
+  const bg = colors.dark ? '#111214' : '#fafbfc';
+  const LINE = 17;
+  const footer = more ? <T style="caption1" color="secondary" align="center">Showing the first 2,000 lines. Download for the full file.</T> : null;
+  const num = (i: number) => <Text style={{ width: gutter, textAlign: 'right', paddingRight: 8, color: colors.tertiary, fontFamily: MONO, fontSize: 11, lineHeight: LINE }}>{i + 1}</Text>;
+  const code = { color: colors.text, fontFamily: MONO, fontSize: 11.5, lineHeight: LINE } as const;
+
+  if (wrap) return <FlatList data={lines} keyExtractor={(_, i) => String(i)} initialNumToRender={60} windowSize={15} style={{ backgroundColor: bg }}
+    contentContainerStyle={{ paddingVertical: 8 }} ListFooterComponent={footer}
+    renderItem={({ item, index }) => <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>{num(index)}<Text selectable style={[code, { flex: 1, paddingRight: 10 }]}>{item || ' '}</Text></View>} />;
+
+  // Unwrapped: measure the widest line once so the shared horizontal scroller is wide enough.
+  const longest = lines.reduce((m, l) => Math.max(m, l.length), 0);
+  const contentWidth = Math.max(width - gutter, Math.ceil(longest * 6.9) + 24);
+  return <View style={{ flex: 1, flexDirection: 'row', backgroundColor: bg }}>
+    <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator style={{ flex: 1 }} contentContainerStyle={{ width: contentWidth + gutter }}>
+      <FlatList data={lines} keyExtractor={(_, i) => String(i)} initialNumToRender={60} windowSize={15} style={{ width: contentWidth + gutter }}
+        contentContainerStyle={{ paddingVertical: 8 }} ListFooterComponent={footer} nestedScrollEnabled
+        getItemLayout={(_, i) => ({ length: LINE, offset: LINE * i + 8, index: i })}
+        renderItem={({ item, index }) => <View style={{ flexDirection: 'row', height: LINE }}>{num(index)}<Text selectable numberOfLines={1} style={[code, { width: contentWidth }]}>{item || ' '}</Text></View>} />
+    </ScrollView>
+  </View>;
 }
 
 function Action({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void }) {
