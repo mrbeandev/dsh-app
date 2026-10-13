@@ -1,0 +1,92 @@
+import { Platform } from 'react-native';
+import { randomUUID } from 'expo-crypto';
+import { Connection, endpoint, Frame, normalizeConnection, rpcEnvelope } from './protocol';
+
+export class HarnessError extends Error {
+  constructor(public code: string, message: string) { super(message); }
+}
+export class HarnessClient {
+  connection: Connection;
+  private socket: WebSocket | null = null;
+  private streams = new Map<string, { endpoint: string; args: Record<string, unknown>; receive: (frame: Frame) => void }>();
+  private cookie = '';
+  private nextStream = 0;
+  private retry: ReturnType<typeof setTimeout> | undefined;
+  private closed = false;
+  private attempts = 0;
+  clientId = '';
+  onStatus: (status: 'connected' | 'reconnecting' | 'disconnected') => void = () => {};
+  constructor(connection: Connection) { this.connection = normalizeConnection(connection); }
+  async authenticate() {
+    const url = new URL(endpoint(this.connection.url, '/'));
+    url.searchParams.set('token', this.connection.token);
+    const response = await fetch(url.toString(), { credentials: 'include', redirect: 'follow', signal: AbortSignal.timeout(12000) });
+    // Native fetch maintains the cookie jar; explicitly retain a cookie when exposed by the platform.
+    const cookie = response.headers.get('set-cookie');
+    if (cookie) this.cookie = cookie.split(';')[0];
+    if (!response.ok) throw new HarnessError('authentication', 'Harness refused the connection. Check the URL and current auth token.');
+    await this.call('session/list', { _request: {} });
+  }
+  async call<T = any>(method: string, args: Record<string, unknown>): Promise<T> {
+    const rpcId = randomUUID();
+    const response = await fetch(endpoint(this.connection.url, `/api/${method}`), {
+      method: 'POST', credentials: 'include', signal: AbortSignal.timeout(20000),
+      headers: { 'Content-Type': 'application/json', ...(Platform.OS !== 'web' && this.cookie ? { Cookie: this.cookie } : {}) },
+      body: JSON.stringify(rpcEnvelope(method, args, rpcId)),
+    });
+    if (response.status === 401) throw new HarnessError('unauthenticated', 'Auth token expired. Reconnect with the current Harness token.');
+    if (response.status === 403) throw new HarnessError('forbidden', 'Harness rejected this host or origin. Check the host configuration.');
+    if (response.status === 404) throw new HarnessError('unavailable', 'This Harness does not support this feature.');
+    if (!response.ok) throw new HarnessError('transport', `Harness request failed (${response.status}).`);
+    const data = await response.json();
+    if (data.type !== 'server-response' || data.rpcId !== rpcId) throw new HarnessError('protocol', 'Unexpected Harness response.');
+    if (!data.result?.ok) throw new HarnessError(data.result?.error?.code ?? 'unknown', data.result?.error?.message ?? 'Harness request failed.');
+    return data.result.value;
+  }
+  request<T = any>(method: string, request: Record<string, unknown>) { return this.call<T>(method, { request }); }
+  connectStreams() {
+    this.closed = false;
+    const url = endpoint(this.connection.url, '/api/remote.mux').replace(/^http/, 'ws');
+    const Socket = WebSocket as any;
+    this.socket = Platform.OS === 'web' ? new WebSocket(url) : new Socket(url, undefined, this.cookie ? { headers: { Cookie: this.cookie } } : undefined);
+    this.socket!.onopen = () => {
+      this.attempts = 0;
+      for (const [streamId, stream] of this.streams) this.open(streamId, stream.endpoint, stream.args);
+    };
+    this.socket!.onmessage = (message) => {
+      try {
+        const frame = JSON.parse(String(message.data));
+        if (frame.type === 'item') this.streams.get(frame.streamId)?.receive(frame.value);
+        if (frame.type === 'error') this.streams.get(frame.streamId)?.receive({ type: 'stream-error', error: frame.error });
+      } catch { /* Ignore malformed frames, never execute server content. */ }
+    };
+    this.socket!.onclose = () => {
+      this.clientId = '';
+      if (!this.closed) {
+        this.onStatus('reconnecting');
+        this.retry = setTimeout(() => this.connectStreams(), Math.min(1000 * 2 ** this.attempts++, 15000));
+      }
+    };
+    this.socket!.onerror = () => { this.socket?.close(); };
+  }
+  private open(streamId: string, endpoint: string, args: Record<string, unknown>) {
+    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'open', streamId, endpoint, payload: { args } }));
+  }
+  follow(endpoint: string, args: Record<string, unknown>, receive: (frame: Frame) => void) {
+    const streamId = String(++this.nextStream);
+    this.streams.set(streamId, { endpoint, args, receive });
+    this.open(streamId, endpoint, args);
+    return () => {
+      this.streams.delete(streamId);
+      if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'cancel', streamId }));
+    };
+  }
+  async answer(eventId: string, value: unknown, clientId: string) {
+    if (!clientId || clientId !== this.clientId) throw new HarnessError('stale', 'Connection changed. Wait for the request to be replayed before answering.');
+    return this.call('$events/result', { clientId, eventId, outcome: { kind: 'result', value } });
+  }
+  disconnect() {
+    this.closed = true; clearTimeout(this.retry); this.streams.clear(); this.socket?.close(); this.socket = null; this.clientId = ''; this.onStatus('disconnected');
+  }
+}
+export function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Something went wrong. Please try again.'; }
