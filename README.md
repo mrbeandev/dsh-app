@@ -45,7 +45,7 @@ npx expo-doctor
 
 **Chat** — Markdown (code blocks with copy, quotes, inline code), DSH-style event rows (tools with folded approvals, reasoning, context, compaction, system prompt, failures), approvals and questions, model sheet, auto-scroll on send and on every agent update. Long-press or ⋯ on your own message: **Rewind to Here** or Copy.
 
-**Rewind (app feature)** — rewinds a thread to any earlier message of yours: the app forks the thread just before that message's turn (`session/fork`), keeps the title, archives the old thread (not deleted), and puts the message back in the composer. Works on any Harness; it does not need or talk to the `dsh-rewind` plugin. Workspace files are not restored. See [docs/REWIND.md](docs/REWIND.md).
+**Rewind (app feature)** — rewinds a thread to any earlier message of yours: the app forks the thread just before that message's turn (`session/fork`), keeps the title, archives the old thread (not deleted), and puts the message back in the composer. Works on any Harness; it does not need or talk to the `dsh-rewind` plugin. Workspace files are not restored.
 
 **Thread Details** — model, persona, access, directory; Context (percent used with system/tools/messages breakdown), Token Usage (total, cache hit, uncached/cached input, output) and Session Statistics (turns, steps, LLM/tool time, TTFT, TPS) — the Web UI's popovers as sections; Activity (goal, plan, questions, queue, to-dos); readable cache diagnostics.
 
