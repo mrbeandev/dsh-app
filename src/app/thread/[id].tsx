@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Glass, GlassTarget, GlassTargetProvider } from '../../components/Glass';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
@@ -7,12 +7,12 @@ import { cacheEpoch, readHistory, writeHistory, type CachedHistory } from '../..
 import { randomUUID } from 'expo-crypto';
 import { useApp } from '../../state/app';
 import { Empty, ErrorNotice, Header, IconButton, ScrollEdge, Screen, T } from '../../components/ui';
-import { Disclosure } from '../../components/Disclosure';
+import { ChatRow } from '../../components/ChatRows';
 import { ChatComposer } from '../../components/ChatComposer';
 import { MessageMarkdown } from '../../components/MessageMarkdown';
 import { PendingRequest } from '../../components/PendingRequest';
 import { errorMessage } from '../../lib/harness';
-import { Frame, projectEvent, sessionTitle, WireEvent } from '../../lib/protocol';
+import { Frame, buildTranscript, sessionTitle, WireEvent } from '../../lib/protocol';
 import { expandStream, streamText } from '../../lib/stream';
 export default function Thread() {
   const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status } = useApp();
@@ -65,7 +65,21 @@ export default function Thread() {
     });
     return () => { active = false; stop(); clearTimeout(saveTimer); if (receivedLive) void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); };
   }, [client, id, harnessUrl, refresh]));
-  const rows = useMemo(() => records.map(projectEvent).filter(x => x !== null && x.kind !== 'event'), [records]);
+  const rows = useMemo(() => buildTranscript(records), [records]);
+  // Scroll ownership (like the DSH web chat): follow the tail unless the reader has scrolled away.
+  // Sending a message or any new agent activity re-pins to the very bottom.
+  const scrollToBottom = useCallback((animated = true) => {
+    atBottom.current = true; userScrolled.current = false; setJumpVisible(false);
+    requestAnimationFrame(() => { list.current?.scrollToEnd({ animated }); setTimeout(() => list.current?.scrollToEnd({ animated: false }), animated ? 320 : 60); });
+  }, []);
+  const lastRow = rows[rows.length - 1];
+  const activity = `${rows.length}:${lastRow?.id}:${lastRow?.kind === 'tool' ? (lastRow.pending ? 0 : 1) : ''}:${live.length > 0 ? 1 : 0}:${pending.length}`;
+  const lastActivity = useRef('');
+  useEffect(() => {
+    if (lastActivity.current === activity) return;
+    const first = lastActivity.current === ''; lastActivity.current = activity;
+    if (first || atBottom.current) scrollToBottom(!first);
+  }, [activity, scrollToBottom]);
   const send = async () => {
     if (!client || !draft.trim() || busy) return; setBusy(true); setError(''); const content = draft.trim();
     try {
@@ -75,27 +89,23 @@ export default function Thread() {
       const catalog = Array.isArray(commands) ? commands : commands?.commands ?? [];
       if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client.call('commands/execute', { agentId: id, line: content, submittedAttachments: [] });
       else await client.request('session/prompt', { requestId: randomUUID(), sessionId: id, mode: 'queue', content: [{ type: 'text', text: content }], clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-      setDraft(''); setRunning(true); atBottom.current = true; setJumpVisible(false); requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
+      setDraft(''); setRunning(true); scrollToBottom();
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
   const older = async () => { if (!client || !records.length) return; try { const page = await client.request('session/page', { address: { kind: 'session', sessionId: id }, throughSeq: cursor, beforeSeq: records[0].seq, maxMessages: 60 }); atBottom.current = false; const merged = new Map(history.current.records.map(e => [e.seq, e])); for (const r of page.records) if (r.type === 'event') merged.set(r.event.seq, r.event); history.current = { ...history.current, records: [...merged.values()].sort((a, b) => a.seq - b.seq), hasMore: page.hasMore, savedAt: Date.now() }; setRecords(history.current.records); setHasMore(page.hasMore); await writeHistory(harnessUrl, id, history.current); } catch (e) { setError(errorMessage(e)); } };
   const working = running || !!session?.running;
   const workspace = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : undefined;
   const subtitle = [workspace, status === 'connected' ? (working ? 'Working…' : undefined) : 'Offline'].filter(Boolean).join(' · ');
-  const toLatest = () => { atBottom.current = true; setJumpVisible(false); list.current?.scrollToEnd({ animated: true }); };
+  const toLatest = () => scrollToBottom();
   return <Screen edges={['top', 'bottom']}>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <GlassTarget target={target}>
         <FlatList ref={list} onScrollBeginDrag={() => { userScrolled.current = true; }} onContentSizeChange={() => { if (atBottom.current) list.current?.scrollToEnd({ animated: false }); }} onScroll={e => { if (!userScrolled.current) return; const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent; atBottom.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 100; setJumpVisible(!atBottom.current); }} scrollEventThrottle={100} keyboardDismissMode="interactive" data={rows} keyExtractor={x => x.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 60, paddingBottom: 12, gap: 14, flexGrow: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 62, paddingBottom: 10, flexGrow: 1 }}
           ListHeaderComponent={hasMore ? <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ alignSelf: 'center', height: 32, paddingHorizontal: 14, borderRadius: 16, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="footnote" color="secondary">Load Earlier Messages</T></Pressable> : null}
           ListEmptyComponent={<View style={{ flex: 1, justifyContent: 'center' }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>}
-          renderItem={({ item }) => item.kind === 'tool' || item.kind === 'event'
-            ? <Disclosure title={item.label ?? 'Activity'} text={item.text} />
-            : item.kind === 'user'
-              ? <View style={{ marginLeft: 32, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2, backgroundColor: colors.bubble, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}><T style="caption2" color="secondary">You</T><MessageMarkdown text={item.text} /></View>
-              : <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant</T></View><MessageMarkdown text={item.text} /></View>}
-          ListFooterComponent={<View style={{ gap: 14 }}>{live ? <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><ActivityIndicator size="small" color={colors.muted} /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
+          renderItem={({ item, index }) => { const prev = rows[index - 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = index === 0 ? 0 : quiet(item.kind) && quiet(prev?.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} /></View>; }}
+          ListFooterComponent={<View style={{ gap: 12, marginTop: 12 }}>{live ? <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><ActivityIndicator size="small" color={colors.muted} /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
       </GlassTarget>
