@@ -1,10 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Glass, GlassTarget, GlassTargetProvider } from '../../components/Glass';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { cacheEpoch, readHistory, writeHistory, type CachedHistory } from '../../lib/cache';
 import { randomUUID } from 'expo-crypto';
 import { useApp } from '../../state/app';
-import { Empty, ErrorNotice, Header, IconButton, Label, Screen } from '../../components/ui';
+import { Empty, ErrorNotice, Header, IconButton, ScrollEdge, Screen, T } from '../../components/ui';
 import { Disclosure } from '../../components/Disclosure';
 import { ChatComposer } from '../../components/ChatComposer';
 import { MessageMarkdown } from '../../components/MessageMarkdown';
@@ -20,7 +22,7 @@ export default function Thread() {
   const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false);
   const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState('');
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
-  const list = useRef<FlatList>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
+  const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
   const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
   const session = sessions.find(x => x.sessionId === id);
   useFocusEffect(useCallback(() => {
@@ -77,5 +79,37 @@ export default function Thread() {
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
   const older = async () => { if (!client || !records.length) return; try { const page = await client.request('session/page', { address: { kind: 'session', sessionId: id }, throughSeq: cursor, beforeSeq: records[0].seq, maxMessages: 60 }); atBottom.current = false; const merged = new Map(history.current.records.map(e => [e.seq, e])); for (const r of page.records) if (r.type === 'event') merged.set(r.event.seq, r.event); history.current = { ...history.current, records: [...merged.values()].sort((a, b) => a.seq - b.seq), hasMore: page.hasMore, savedAt: Date.now() }; setRecords(history.current.records); setHasMore(page.hasMore); await writeHistory(harnessUrl, id, history.current); } catch (e) { setError(errorMessage(e)); } };
-  return <Screen><Header compact title={session ? sessionTitle(session) : 'Thread'} back><IconButton icon="ellipsis-horizontal" label="Thread details" onPress={() => router.push({ pathname: '/thread/details', params: { id } })} /></Header><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><FlatList ref={list} onScrollBeginDrag={() => { userScrolled.current = true; }} onContentSizeChange={() => { if (atBottom.current) list.current?.scrollToEnd({ animated: false }); }} onScroll={e => { if (!userScrolled.current) return; const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent; atBottom.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 100; setJumpVisible(!atBottom.current); }} scrollEventThrottle={100} data={rows} keyExtractor={x => x.id} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12, gap: 16, flexGrow: 1 }} ListHeaderComponent={hasMore ? <Pressable onPress={() => void older()} style={{ alignItems: 'center', padding: 8 }}><Label muted size={13}>Load earlier messages</Label></Pressable> : null} ListEmptyComponent={<Empty title="Let’s build something" detail="Describe a task, ask a question, or pick up an idea. Your Harness takes care of the rest." />} renderItem={({ item }) => item.kind === 'tool' || item.kind === 'event' ? <Disclosure title={item.label ?? 'Activity'} text={item.text} /> : <View style={item.kind === 'user' ? { alignSelf: 'flex-end', maxWidth: '92%', padding: 15, backgroundColor: colors.bubble, borderRadius: 20 } : { gap: 9 }}><Label muted size={11}>{item.kind === 'user' ? 'You' : 'Assistant'}</Label><MessageMarkdown text={item.text} /></View>} ListFooterComponent={<View style={{ gap: 16 }}>{live ? <View style={{ gap: 8 }}><Label muted size={11}>Assistant · working</Label><MessageMarkdown text={live} /></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />{jumpVisible && <Pressable accessibilityRole="button" onPress={() => { atBottom.current = true; setJumpVisible(false); list.current?.scrollToEnd({ animated: true }); }} style={{ alignSelf: 'center', padding: 10, borderRadius: 20, backgroundColor: colors.grouped }}><Label size={13}>↓ Latest messages</Label></Pressable>}<ErrorNotice message={error} /><ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={() => void send()} running={running || !!session?.running} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }} /></KeyboardAvoidingView></Screen>;
+  const working = running || !!session?.running;
+  const workspace = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : undefined;
+  const subtitle = [workspace, status === 'connected' ? (working ? 'Working…' : undefined) : 'Offline'].filter(Boolean).join(' · ');
+  const toLatest = () => { atBottom.current = true; setJumpVisible(false); list.current?.scrollToEnd({ animated: true }); };
+  return <Screen edges={['top', 'bottom']}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <GlassTarget target={target}>
+        <FlatList ref={list} onScrollBeginDrag={() => { userScrolled.current = true; }} onContentSizeChange={() => { if (atBottom.current) list.current?.scrollToEnd({ animated: false }); }} onScroll={e => { if (!userScrolled.current) return; const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent; atBottom.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 100; setJumpVisible(!atBottom.current); }} scrollEventThrottle={100} keyboardDismissMode="interactive" data={rows} keyExtractor={x => x.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 60, paddingBottom: 12, gap: 14, flexGrow: 1 }}
+          ListHeaderComponent={hasMore ? <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ alignSelf: 'center', height: 32, paddingHorizontal: 14, borderRadius: 16, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="footnote" color="secondary">Load Earlier Messages</T></Pressable> : null}
+          ListEmptyComponent={<View style={{ flex: 1, justifyContent: 'center' }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>}
+          renderItem={({ item }) => item.kind === 'tool' || item.kind === 'event'
+            ? <Disclosure title={item.label ?? 'Activity'} text={item.text} />
+            : item.kind === 'user'
+              ? <View accessibilityLabel={`You said: ${item.text}`} style={{ alignSelf: 'flex-end', maxWidth: '85%', paddingHorizontal: 14, paddingVertical: 9, backgroundColor: colors.bubble, borderRadius: 20, borderBottomRightRadius: 6 }}><MessageMarkdown text={item.text} /></View>
+              : <View><MessageMarkdown text={item.text} /></View>}
+          ListFooterComponent={<View style={{ gap: 14 }}>{live ? <View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><ActivityIndicator size="small" color={colors.muted} /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
+        <ScrollEdge height={56} />
+        {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
+      </GlassTarget>
+      <ErrorNotice message={error} />
+      <GlassTargetProvider value={target}>
+        <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={() => void send()} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }} />
+      </GlassTargetProvider>
+      <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
+        <GlassTargetProvider value={target}>
+          <Header title={session ? sessionTitle(session) : 'Thread'} subtitle={subtitle || undefined} back>
+            <IconButton icon="ellipsis-horizontal" size={20} label="Thread details" onPress={() => router.push({ pathname: '/thread/details', params: { id } })} />
+          </Header>
+        </GlassTargetProvider>
+      </View>
+    </KeyboardAvoidingView>
+  </Screen>;
 }

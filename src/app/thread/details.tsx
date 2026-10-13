@@ -1,18 +1,32 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../state/app';
-import { Button, ErrorNotice, Field, Header, Label, Screen, s } from '../../components/ui';
+import { Button, ErrorNotice, Field, Header, Row, Screen, Section, s } from '../../components/ui';
 import { Disclosure } from '../../components/Disclosure';
+import { ModelPicker } from '../../components/ModelPicker';
 import { errorMessage } from '../../lib/harness';
 import { sessionTitle } from '../../lib/protocol';
 import { readHistory } from '../../lib/cache';
+
 export default function Details() {
-  const { id } = useLocalSearchParams<{ id: string }>(); const { client, sessions, refresh, colors, savedUrl } = useApp();
-  const session = sessions.find(x => x.sessionId === id); const [title, setTitle] = useState(session ? sessionTitle(session) : ''); const [catalog, setCatalog] = useState<any>(null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  useEffect(() => { void client?.call('session/modelCatalog', {}).then(setCatalog).catch(e => setError(errorMessage(e))); }, [client]);
+  const { id } = useLocalSearchParams<{ id: string }>(); const { client, sessions, refresh, savedUrl } = useApp();
+  const session = sessions.find(x => x.sessionId === id);
+  const [title, setTitle] = useState(session ? sessionTitle(session) : ''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [picker, setPicker] = useState(false);
   const [journal, setJournal] = useState('');
   useEffect(() => { void readHistory(client?.connection.url ?? savedUrl, id).then(h => setJournal(JSON.stringify(h?.records ?? [], null, 2))).catch(() => {}); }, [client, savedUrl, id]);
-  const run = async (operation: () => Promise<unknown>) => { setBusy(true); setError(''); try { await operation(); await refresh(); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } };
-  return <Screen><Header title="Thread settings" back /><ScrollView contentContainerStyle={s.body}><Field label="Title" value={title} onChangeText={setTitle} /><Button title="Save title" loading={busy} onPress={() => void run(() => client!.request('session/rename', { sessionId: id, title }))} /><Label muted size={12}>MODEL</Label>{(catalog?.groups ?? catalog?.providers ?? []).map((group: any) => <View key={group.id} style={{ gap: 8 }}><Label muted size={13}>{group.name}</Label>{(group.models ?? []).map((model: any) => <Pressable key={model.id} disabled={busy} onPress={() => void run(() => client!.request('session/selectModel', { sessionId: id, provider: group.id, model: model.id }))} style={{ padding: 14, backgroundColor: colors.grouped, borderRadius: 12 }}><Label size={14}>{model.name ?? model.id}</Label></Pressable>)}</View>)}<Label muted size={12}>SESSION</Label><Disclosure title="Session projections" text={JSON.stringify(session?.projections?.values ?? {}, null, 2)} /><Disclosure title="Context and diagnostic journal" text={journal} /><ErrorNotice message={error} /></ScrollView></Screen>;
+  const selection = session?.projections?.values.modelSelection as any;
+  const model: string = (selection?.next ?? selection?.lastUsed)?.model ?? '';
+  const save = async () => { if (!client) return; setBusy(true); setError(''); try { await client.request('session/rename', { sessionId: id, title }); await refresh(); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } };
+  return <Screen><Header title="Thread Details" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
+    <View style={{ gap: 10 }}><Field label="Title" value={title} onChangeText={setTitle} returnKeyType="done" onSubmitEditing={save} /><Button title="Save Title" secondary loading={busy} disabled={!client || !title.trim()} onPress={save} /></View>
+    <Section header="Thread">
+      <Row icon="sparkles-outline" title="Model" value={model || 'Default'} onPress={client ? () => setPicker(true) : undefined} />
+      {session?.cwd ? <Row icon="folder-outline" title="Directory" subtitle={session.cwd} chevron={false} /> : null}
+    </Section>
+    <Section header="Diagnostics" footer="Raw Harness data, for troubleshooting.">
+      <View style={{ padding: 8, gap: 4 }}><Disclosure title="Session projections" text={JSON.stringify(session?.projections?.values ?? {}, null, 2)} /><Disclosure title="Context and event journal" text={journal} /></View>
+    </Section>
+    <ErrorNotice message={error} />
+  </ScrollView><ModelPicker sessionId={id} visible={picker} onClose={() => setPicker(false)} onSelected={() => {}} current={model} /></Screen>;
 }

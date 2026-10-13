@@ -5,8 +5,10 @@ import { HarnessClient } from '../lib/harness';
 import { Connection, Frame, Session } from '../lib/protocol';
 import { cacheEpoch, readCatalog, writeCatalog, clearWorkspaceHistory } from '../lib/cache';
 type ThemeMode = 'system' | 'light' | 'dark';
-const light = { bg: '#fcfcfc', card: '#ffffff', grouped: '#f4f4f5', text: '#27272a', muted: '#71717b', border: '#e4e4e7', primary: '#1b4ed8', bubble: '#efeff1', danger: '#c10007', success: '#047857' };
-const dark = { bg: '#18181b', card: '#212124', grouped: '#27272a', text: '#f4f4f5', muted: '#a1a1aa', border: '#3f3f46', primary: '#8ba8ff', bubble: '#303034', danger: '#ff8a94', success: '#6ee7b7' };
+// Apple HIG semantic system colors (iOS light / dark). Glass tones follow the materials guidance:
+// glass only on the control layer, content stays on solid backgrounds.
+const light = { dark: false, bg: '#ffffff', card: '#ffffff', grouped: '#f2f2f7', text: '#000000', muted: '#3c3c4399', tertiary: '#3c3c434d', border: '#3c3c4333', separator: '#c6c6c8', primary: '#007aff', bubble: '#e9e9eb', danger: '#ff3b30', success: '#34c759', live: '#34c759', glass: '#f9f9f9cc', glassEdge: '#ffffffb3', fill: '#7878801f' };
+const dark = { dark: true, bg: '#000000', card: '#1c1c1e', grouped: '#1c1c1e', text: '#ffffff', muted: '#ebebf599', tertiary: '#ebebf54d', border: '#54545899', separator: '#38383a', primary: '#0a84ff', bubble: '#2c2c2e', danger: '#ff453a', success: '#30d158', live: '#30d158', glass: '#1e1e20cc', glassEdge: '#ffffff1f', fill: '#7878803d' };
 export type Colors = typeof light;
 type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);

@@ -1,12 +1,25 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { useApp } from '../state/app';
 import { errorMessage } from '../lib/harness';
-import { ErrorNotice, IconButton, Label, s } from './ui';
-export function ModelPicker({ sessionId, visible, onClose, onSelected }: { sessionId: string; visible: boolean; onClose: () => void; onSelected: (label: string) => void }) {
+import { ErrorNotice, Row, SearchField, Section } from './ui';
+import { Sheet } from './Sheet';
+
+/** Model selection sheet: searchable, grouped by provider, current model checked (HIG lists + sheets). */
+export function ModelPicker({ sessionId, visible, onClose, onSelected, current }: { sessionId: string; visible: boolean; onClose: () => void; onSelected: (label: string) => void; current?: string }) {
   const { client, colors, refresh } = useApp(); const [catalog, setCatalog] = useState<any>(null); const [query, setQuery] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   useEffect(() => { if (!visible || !client) return; let active = true; void client.call('session/modelCatalog', {}).then(c => { if (active) setCatalog(c); }).catch(e => { if (active) setError(errorMessage(e)); }); return () => { active = false; }; }, [client, visible]);
+  const groups = useMemo(() => (catalog?.groups ?? catalog?.providers ?? []).map((g: any) => ({ ...g, models: (g.models ?? []).filter((m: any) => `${m.name ?? ''} ${m.id}`.toLowerCase().includes(query.toLowerCase())) })).filter((g: any) => g.models.length), [catalog, query]);
   const select = async (provider: string, model: any) => { if (!client) return; setBusy(true); try { await client.request('session/selectModel', { sessionId, provider, model: model.id }); await refresh(); onSelected(model.name ?? model.id); onClose(); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } };
-  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#00000055' }}><Pressable accessibilityLabel="Close model picker" onPress={onClose} style={{ flex: 1 }} /><View style={{ maxHeight: '70%', backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 24 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginTop: 10 }} /><View style={[s.row, { paddingHorizontal: 20, paddingVertical: 4 }]}><View style={{ flex: 1 }}><Label size={18} weight="600">Choose model</Label></View><IconButton icon="close" label="Close" onPress={onClose} /></View><View style={[s.row, { marginHorizontal: 20, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.grouped }]}><Ionicons name="search" color={colors.muted} size={17} /><TextInput accessibilityLabel="Search models" value={query} onChangeText={setQuery} placeholder="Search models" placeholderTextColor={colors.muted} style={{ flex: 1, height: 44, color: colors.text, fontSize: 15 }} /></View><ErrorNotice message={error} /><ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>{!catalog && <ActivityIndicator color={colors.text} />}{(catalog?.groups ?? catalog?.providers ?? []).map((group: any) => <View key={group.id} style={{ gap: 4 }}><Label muted size={12}>{group.name ?? group.id}</Label>{(group.models ?? []).filter((m: any) => `${m.name} ${m.id}`.toLowerCase().includes(query.toLowerCase())).map((model: any) => <Pressable key={model.id} disabled={busy} onPress={() => void select(group.id, model)} style={({ pressed }) => ({ minHeight: 48, paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10, backgroundColor: pressed ? colors.grouped : 'transparent' })}><Text numberOfLines={1} style={{ color: colors.text, fontSize: 15 }}>{model.name ?? model.id}</Text></Pressable>)}</View>)}</ScrollView></View></View></Modal>;
+  return <Sheet visible={visible} onClose={onClose} title="Model">
+    <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}><SearchField value={query} onChangeText={setQuery} placeholder="Search Models" /></View>
+    <ErrorNotice message={error} />
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24, gap: 22 }}>
+      {!catalog && !error ? <ActivityIndicator color={colors.muted} style={{ marginTop: 24 }} /> : null}
+      {catalog && !groups.length ? <Pressable onPress={() => setQuery('')}><Row title="No Models Found" subtitle="Clear the search to see all models." /></Pressable> : null}
+      {groups.map((group: any) => <Section key={group.id} header={group.name ?? group.id}>
+        {group.models.map((model: any) => { const label = model.name ?? model.id; return <Row key={model.id} title={label} subtitle={model.name && model.name !== model.id ? model.id : undefined} selected={current === label || current === model.id} chevron={false} onPress={busy ? undefined : () => void select(group.id, model)} />; })}
+      </Section>)}
+    </ScrollView>
+  </Sheet>;
 }
