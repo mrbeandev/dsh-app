@@ -8,7 +8,7 @@ function Navigation() {
   const { colors } = useApp();
   return <>
     <StatusBar style={colors.dark ? 'light' : 'dark'} />
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'default' }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'slide_from_right', animationDuration: 220 }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="connect" options={{ presentation: 'modal' }} />
       <Stack.Screen name="new" options={{ presentation: 'modal' }} />

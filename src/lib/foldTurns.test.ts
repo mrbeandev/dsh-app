@@ -46,4 +46,10 @@ describe('foldTurns (Completed in … marker)', () => {
     const rows = fold([...turn(1, 0, { reason: { kind: 'completed' } }), ...turn(100, 300000, { reason: { kind: 'completed' } })]);
     expect(rows.map(r => r.kind)).toEqual(['user', 'turn', 'assistant', 'user', 'turn', 'assistant']);
   });
+  it('folds a turn whose turn/start is cut off by the history page (no expand-then-collapse)', () => {
+    const page = turn(1, 0, { reason: { kind: 'completed' } }).filter(e => e.type !== 'turn/start' && !(e.type === 'step/start' && e.seq === 2));
+    const rows = fold(page);
+    expect(rows.map(r => r.kind)).toEqual(['user', 'turn', 'assistant']);
+    expect((rows[1] as any).tools).toBe(2);
+  });
 });

@@ -255,6 +255,12 @@ const PROCESS = new Set<TranscriptRow['kind']>(['tool', 'context', 'compaction',
  */
 export function foldTurns(events: readonly WireEvent[], rows: TranscriptRow[]): TranscriptRow[] {
   const turns: { start: number; end?: number; startTime: number; endTime?: number; outcome: 'completed' | 'interrupted' | 'failed'; steps: number }[] = [];
+  // A history page usually begins at a user message, after that turn's turn/start. If the first turn/end
+  // comes before any turn/start, the page opened mid-turn: treat the page start as that turn's start so it
+  // folds immediately (otherwise it renders expanded, then collapses once older history arrives).
+  const firstStart = events.findIndex(e => e.type === 'turn/start');
+  const firstEnd = events.findIndex(e => e.type === 'turn/end');
+  if (events.length && firstEnd >= 0 && (firstStart < 0 || firstEnd < firstStart)) turns.push({ start: events[0].seq, startTime: events[0].time, outcome: 'completed', steps: 0 });
   for (const e of events) {
     if (e.type === 'turn/start') turns.push({ start: e.seq, startTime: e.time, outcome: 'completed', steps: 0 });
     const t = turns[turns.length - 1];
