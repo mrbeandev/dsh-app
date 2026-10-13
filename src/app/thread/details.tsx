@@ -1,32 +1,155 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../state/app';
-import { Button, ErrorNotice, Field, Header, Row, Screen, Section, s } from '../../components/ui';
-import { Disclosure } from '../../components/Disclosure';
+import { Button, ErrorNotice, Field, Header, Row, Screen, Section, T, s } from '../../components/ui';
 import { ModelPicker } from '../../components/ModelPicker';
+import { Skeleton } from '../../components/Loader';
 import { errorMessage } from '../../lib/harness';
 import { sessionTitle } from '../../lib/protocol';
 import { readHistory } from '../../lib/cache';
+import { compact, contextUsage, duration, grouped, sessionStats, tokenUsage } from '../../lib/sessionStats';
+import { relativeTime } from '../../lib/time';
+
+type Values = Record<string, any>;
+type IconName = React.ComponentProps<typeof Ionicons>['name'];
+
+/** Readable labels for the raw event types counted in the local journal summary. */
+const EVENT_GROUPS: { label: string; match: (t: string) => boolean }[] = [
+  { label: 'Your messages', match: t => t === 'user/message' || t === 'message/user' },
+  { label: 'Assistant replies', match: t => t === 'assistant/message' },
+  { label: 'Tool calls', match: t => t === 'tool/call' },
+  { label: 'Tool results', match: t => t === 'tool/result' },
+  { label: 'Approvals', match: t => t.startsWith('approval/') },
+  { label: 'Compactions', match: t => t === 'compaction/end' },
+  { label: 'Turns', match: t => t === 'turn/start' },
+];
+type JournalSummary = { total: number; first: number; last: number; counts: { label: string; count: number }[]; other: number; savedAt?: number; bytes: number };
 
 export default function Details() {
-  const { id } = useLocalSearchParams<{ id: string }>(); const { client, sessions, refresh, savedUrl } = useApp();
+  const { id } = useLocalSearchParams<{ id: string }>(); const { client, sessions, refresh, savedUrl, colors } = useApp();
   const session = sessions.find(x => x.sessionId === id);
   const [title, setTitle] = useState(session ? sessionTitle(session) : ''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [picker, setPicker] = useState(false);
-  const [journal, setJournal] = useState('');
-  useEffect(() => { void readHistory(client?.connection.url ?? savedUrl, id).then(h => setJournal(JSON.stringify(h?.records ?? [], null, 2))).catch(() => {}); }, [client, savedUrl, id]);
-  const selection = session?.projections?.values.modelSelection as any;
+  // Live projections (fresh numbers); fall back to whatever the cached session list carried.
+  const [live, setLive] = useState<Values | null>(null);
+  const values: Values = live ?? (session?.projections?.values as Values) ?? {};
+  const loading = !live && !session?.projections?.values;
+  const [journal, setJournal] = useState<JournalSummary | null>(null);
+
+  useEffect(() => {
+    if (!client) return; let active = true;
+    client.request<{ values: Values }>('session/projections', { sessionId: id }).then(r => { if (active) setLive(r.values ?? {}); }).catch(() => {});
+    return () => { active = false; };
+  }, [client, id]);
+  useEffect(() => {
+    let active = true;
+    void readHistory(client?.connection.url ?? savedUrl, id).then(h => {
+      if (!active || !h) return;
+      // Summarise instead of stringifying thousands of events into one Text (that froze the UI).
+      const types = h.records.map(r => String(r.type));
+      const counts = EVENT_GROUPS.map(g => ({ label: g.label, count: types.filter(g.match).length })).filter(c => c.count);
+      const matched = counts.reduce((a, c) => a + c.count, 0);
+      setJournal({ total: types.length, first: h.records[0]?.seq ?? 0, last: h.records[h.records.length - 1]?.seq ?? 0, counts, other: types.length - matched, savedAt: h.savedAt, bytes: approxBytes(h.records) });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [client, savedUrl, id]);
+
+  const selection = values.modelSelection;
   const model: string = (selection?.next ?? selection?.lastUsed)?.model ?? '';
+  const provider: string = (selection?.next ?? selection?.lastUsed)?.provider ?? '';
+  const tokens = useMemo(() => tokenUsage(values.tokenUsage), [values.tokenUsage]);
+  const ctx = useMemo(() => contextUsage(values.contextPressure, values.contextBreakdown), [values.contextPressure, values.contextBreakdown]);
+  const stats = useMemo(() => sessionStats(values.sessionStats), [values.sessionStats]);
   const save = async () => { if (!client) return; setBusy(true); setError(''); try { await client.request('session/rename', { sessionId: id, title }); await refresh(); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } };
+
+  const partColor = [colors.tertiary, '#b392f0', colors.primary];
+  const pendingQuestions = values.userQuestions?.active?.length ?? 0;
+  const inboxCount = (values.inbox?.['next-turn']?.length ?? 0) + (values.inbox?.['next-step']?.length ?? 0);
+  const todos: { content?: string; status?: string }[] = Array.isArray(values.todos?.items) ? values.todos.items : Array.isArray(values.todos) ? values.todos : [];
+
   return <Screen><Header title="Thread Details" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
     <View style={{ gap: 10 }}><Field label="Title" value={title} onChangeText={setTitle} returnKeyType="done" onSubmitEditing={save} /><Button title="Save Title" secondary loading={busy} disabled={!client || !title.trim()} onPress={save} /></View>
+
     <Section header="Thread">
-      <Row icon="sparkles-outline" title="Model" value={model || 'Default'} onPress={client ? () => setPicker(true) : undefined} />
+      <Row icon="sparkles-outline" title="Model" value={model || 'Default'} subtitle={provider || undefined} onPress={client ? () => setPicker(true) : undefined} />
+      {values.agentPreset ? <Row icon="person-circle-outline" title="Persona" value={titleCase(String(values.agentPreset))} chevron={false} /> : null}
+      {values.permissions?.currentValue ? <Row icon="shield-checkmark-outline" title="Access" value={titleCase(String(values.permissions.currentValue))} chevron={false} /> : null}
       {session?.cwd ? <Row icon="folder-outline" title="Directory" subtitle={session.cwd} chevron={false} /> : null}
     </Section>
-    <Section header="Diagnostics" footer="Raw Harness data, for troubleshooting.">
-      <View style={{ padding: 8, gap: 4 }}><Disclosure title="Session projections" text={JSON.stringify(session?.projections?.values ?? {}, null, 2)} /><Disclosure title="Context and event journal" text={journal} /></View>
+
+    <Section header="Context" footer="How full the model's context window is, and what fills it.">
+      <View style={{ padding: 14, gap: 12 }}>
+        {loading ? <StatSkeleton /> : <>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <T style="footnote" weight="700" styleOverride={{ fontSize: 14 }}>{`${Math.round(ctx.fraction * 100)}%`}<T style="footnote" color="secondary" styleOverride={{ fontSize: 14 }}> of context used</T></T>
+            <T style="footnote" color="secondary" styleOverride={{ fontSize: 14 }}>{`~${compact(ctx.used)} / ${ctx.window ? compact(ctx.window) : '—'}`}</T>
+          </View>
+          <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(ctx.fraction * 100) }} style={{ height: 6, borderRadius: 3, backgroundColor: colors.fill, flexDirection: 'row', overflow: 'hidden' }}>
+            {ctx.parts.map((p, i) => <View key={p.key} style={{ width: `${ctx.window ? (p.tokens / ctx.window) * 100 : 0}%`, backgroundColor: partColor[i], marginRight: 1 }} />)}
+          </View>
+          {ctx.parts.map((p, i) => <StatLine key={p.key} label={p.label} value={`~${compact(p.tokens)}`} swatch={partColor[i]} />)}
+        </>}
+      </View>
+    </Section>
+
+    <Section header="Token Usage" footer="All tokens this thread has sent and received, including cached input.">
+      <View style={{ padding: 14, gap: 10 }}>
+        {loading ? <StatSkeleton /> : <>
+          <StatLine icon="server-outline" label="Total" value={`${grouped(tokens.total)} tok`} strong />
+          <Divider />
+          <StatLine label="Cache hit" value={`${Math.round(tokens.cacheHit * 100)}%`} />
+          <StatLine label="Uncached input" value={`${grouped(tokens.uncached)} tok`} />
+          <StatLine label="Cached input" value={`${grouped(tokens.cached)} tok`} />
+          <StatLine label="Output" value={`${grouped(tokens.output)} tok`} />
+        </>}
+      </View>
+    </Section>
+
+    <Section header="Session Statistics">
+      <View style={{ padding: 14, gap: 10 }}>
+        {loading ? <StatSkeleton /> : <>
+          <StatLine icon="speedometer-outline" label={`${stats.turns} turns · ${stats.steps} steps`} value={stats.tokensPerSecond ? `${Math.round(stats.tokensPerSecond)} tok/s` : '—'} strong />
+          <Divider />
+          <StatLine label="LLM time" value={duration(stats.llmMs)} />
+          <StatLine label="Tool time" value={duration(stats.toolMs)} />
+          <StatLine label="Avg time to first token (TTFT)" value={stats.avgTtftMs ? duration(stats.avgTtftMs) : '—'} />
+          <StatLine label="Tokens per second (TPS)" value={stats.tokensPerSecond ? `${Math.round(stats.tokensPerSecond)} tok/s` : '—'} />
+        </>}
+      </View>
+    </Section>
+
+    {todos.length || pendingQuestions || inboxCount || values.goal || values.plan?.active ? <Section header="Activity">
+      {values.goal ? <Row icon="flag-outline" title="Goal" subtitle={String(values.goal.objective ?? values.goal.title ?? 'Active goal')} chevron={false} /> : null}
+      {values.plan?.active ? <Row icon="map-outline" title="Plan mode" value={values.plan.pending ? 'Awaiting approval' : 'On'} chevron={false} /> : null}
+      {pendingQuestions ? <Row icon="help-circle-outline" title="Open questions" value={String(pendingQuestions)} chevron={false} /> : null}
+      {inboxCount ? <Row icon="mail-unread-outline" title="Queued messages" value={String(inboxCount)} chevron={false} /> : null}
+      {todos.length ? <Row icon="checkbox-outline" title="To-dos" value={`${todos.filter(t => t.status === 'completed').length}/${todos.length} done`} chevron={false} /> : null}
+    </Section> : null}
+
+    <Section header="Diagnostics" footer="What this device has cached for the thread. Chats sync from the Harness when opened.">
+      {journal ? <>
+        <Row icon="albums-outline" title="Cached events" value={grouped(journal.total)} subtitle={journal.total ? `Event #${journal.first} – #${journal.last}${journal.other ? ` · ${journal.other} bookkeeping` : ''}` : undefined} chevron={false} />
+        {journal.counts.map(c => <Row key={c.label} title={c.label} value={grouped(c.count)} chevron={false} />)}
+        <Row icon="archive-outline" title="Cache size" value={`~${compact(journal.bytes)}B`} subtitle={journal.savedAt ? `Saved ${relativeTime(journal.savedAt)} ago` : undefined} chevron={false} />
+      </> : <Row icon="albums-outline" title="Cached events" value="None yet" subtitle="Open the thread to cache it on this device." chevron={false} />}
+      <Row icon="finger-print-outline" title="Thread ID" subtitle={id} chevron={false} />
     </Section>
     <ErrorNotice message={error} />
   </ScrollView><ModelPicker sessionId={id} visible={picker} onClose={() => setPicker(false)} onSelected={() => {}} current={model} /></Screen>;
 }
+
+function StatLine({ label, value, strong, swatch, icon }: { label: string; value: string; strong?: boolean; swatch?: string; icon?: IconName }) {
+  const { colors } = useApp();
+  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 22 }}>
+    {swatch ? <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: swatch }} /> : null}
+    {icon ? <Ionicons name={icon} size={16} color={colors.text} /> : null}
+    <View style={{ flex: 1 }}><T style="footnote" color={strong ? 'primary' : 'secondary'} weight={strong ? '600' : '400'} styleOverride={{ fontSize: 14 }}>{label}</T></View>
+    <T style="footnote" weight={strong ? '600' : '500'} styleOverride={{ fontSize: 14, fontVariant: ['tabular-nums'] }}>{value}</T>
+  </View>;
+}
+function Divider() { const { colors } = useApp(); return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator }} />; }
+function StatSkeleton() { return <View style={{ gap: 10 }}>{[70, 55, 62, 48].map((w, i) => <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Skeleton width={`${w}%`} height={11} /><Skeleton width="18%" height={11} /></View>)}</View>; }
+function titleCase(v: string) { return v.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+/** Cheap size estimate without serialising the whole journal on the UI thread. */
+function approxBytes(records: readonly unknown[]) { const sample = records.slice(-50); if (!sample.length) return 0; return Math.round(JSON.stringify(sample).length / sample.length * records.length); }

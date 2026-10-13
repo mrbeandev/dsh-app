@@ -40,3 +40,17 @@ The scaffold/install reports 28 npm audit findings (10 moderate, 18 high), inclu
 ## Network policy
 
 Local HTTP is intentionally enabled in generated Android/iOS builds for same-device/LAN Harness use. This permits cleartext traffic; use HTTPS tunnels for remote access and never expose a token on an untrusted network. Native Android cookie/redirect handling and WebSocket auth were verified against same-device Termux Harness; iOS and HTTPS tunnel device coverage remain pending.
+
+## 2026-10-13 — files, terminal, workspaces, dialogs, loaders, icon, details, rewind
+
+Checked on the Realme RMX3998 against the Termux Harness:
+
+- Files: browse, text preview, download of a 40 B text and a 3 MB binary into `Download/DSH`; SHA-256 matched the Harness copies. Open (Android "Open with") and Share worked.
+- Terminal: create, live output, typed command with long-line wrapping, close in under 0.35 s (optimistic), verified closed on the Harness.
+- Workspaces: add via folder picker, rename, remove (folder kept on disk), pin and archive threads, all confirmed on the Harness.
+- Custom dialog replaced all native alerts; loaders/skeletons shown for chat, lists, files, terminals, models.
+- Glass whale icon and dark splash rendered on cold start.
+- Thread Details: context, token usage and session statistics sections; the old raw journal (froze the UI) replaced by a summary.
+- Rewind: forked thread ended before the chosen message, text back in the composer, old thread archived.
+
+Known setup issue: the phone's Harness runs inside a proot Debian container, so the terminal sees the container's files while the file API sees Termux's real home.

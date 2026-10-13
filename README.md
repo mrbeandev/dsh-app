@@ -37,21 +37,29 @@ npx expo-doctor
 
 ## Current implementation
 
-- T3-style neutral light/dark palettes, minimal thread list, search/filter controls, rounded composer, and modal setup/settings routes.
-- One URL + token connection form, launch-token exchange, strict RPC envelopes, multiplexed WebSocket streams, reconnect backoff.
-- Thread listing/creation, history snapshot and earlier-message loading, prompt sending, command dispatch, streamed response text, stop generation.
-- Expandable tool/event details, approval decisions and structured question answers with connection-generation checks.
-- Title editing, provider/model selection, session projection inspection, credits in settings.
-- Per-Harness SQLite catalog/history caches (IndexedDB on web), immediate cached startup and offline chat reading.
-- Workspace groups sorted by latest activity; lightweight metadata/live-status streams with no background transcript fetching.
-- Open chats replace cached history with live snapshots and streaming; follow cancels on blur.
-- Per-Harness cache size/clear, manual workspace cache refresh, and near-bottom auto-scroll with jump-to-latest.
+**Design** — Apple HIG layout and type scale with a charcoal glass control layer (matching the approved prototype); glass DeepSeek-whale app icon, adaptive/themed icons and dark splash (`scripts/make-icons.py`).
 
-Caching behavior and privacy: [docs/CACHING.md](docs/CACHING.md). Actual physical Android/Termux checks: [docs/VALIDATION.md](docs/VALIDATION.md).
+**Connection** — one URL + token form, launch-token exchange, strict RPC envelopes, multiplexed WebSocket streams, reconnect backoff. Every feature uses the same backend APIs as the DSH Web UI.
+
+**Home** — collapsible workspace tree sorted by last activity, one live dot per working thread, pinned threads first, archived threads hidden. Long-press a thread: Pin, Files, Terminal, Archive. Workspace ⋯ menu: Browse Files, Open Terminal, New Thread Here, Rename, Refresh Cache, Remove. Add a workspace with the Harness folder picker.
+
+**Chat** — Markdown (code blocks with copy, quotes, inline code), DSH-style event rows (tools with folded approvals, reasoning, context, compaction, system prompt, failures), approvals and questions, model sheet, auto-scroll on send and on every agent update. Long-press or ⋯ on your own message: **Rewind to Here** or Copy.
+
+**Rewind (app feature)** — rewinds a thread to any earlier message of yours: the app forks the thread just before that message's turn (`session/fork`), keeps the title, archives the old thread (not deleted), and puts the message back in the composer. Works on any Harness; it does not need or talk to the `dsh-rewind` plugin. Workspace files are not restored. See [docs/REWIND.md](docs/REWIND.md).
+
+**Thread Details** — model, persona, access, directory; Context (percent used with system/tools/messages breakdown), Token Usage (total, cache hit, uncached/cached input, output) and Session Statistics (turns, steps, LLM/tool time, TTFT, TPS) — the Web UI's popovers as sections; Activity (goal, plan, questions, queue, to-dos); readable cache diagnostics.
+
+**Files** — browse, preview text, and download any file to the device (chunked, byte-exact), then Open or Share. **Terminal** — create/close shells, live output, typing and special keys.
+
+**Caching** — per-Harness SQLite catalog/history (IndexedDB on web), cached startup and offline reading, live data only for what is open; cache size and clear per Harness.
+
+**UI building blocks** — reusable app dialog (`useDialog`: confirm/alert/prompt) instead of native alerts; animated loader and skeletons (`components/Loader.tsx`) everywhere data loads.
+
+Caching behavior and privacy: [docs/CACHING.md](docs/CACHING.md). Device checks: [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ### Work still required before release
 
-This first foundation is **not yet full feature parity** with the Kotlin reference. Markdown/code rendering, image/file attachments, workspace file browsing, terminal, git/diffs, archives/pins, queue editing/steering, subagent management, presets, skills/plugins, goals/automations, full reasoning/replay folding, notifications, and broader native device validation remain on the roadmap. T3’s custom native navigation and liquid-glass behavior have not been transplanted; these screens are being rebuilt against standard Expo APIs. Do not mistake this initial client for a complete port.
+Not yet full parity with the Web UI. Still to do: image/file attachments in the composer, git/diffs, queue editing and steering, subagent management, skills/plugins, automations, notifications, a standalone (non-Metro) release build, and iOS testing.
 
 ## Credits and references
 
@@ -64,10 +72,10 @@ Please explore and support both original projects. Their license notices are pre
 
 ## Architecture
 
-- `src/app/`: Expo Router screens.
-- `src/components/`: shared controls, expandable activity and pending-request UI.
-- `src/lib/protocol.ts`: pure wire helpers and transcript projection.
-- `src/lib/harness.ts`: authenticated RPC and multiplexed stream transport.
-- `src/state/app.tsx`: shared connection, sessions, pending requests and appearance state.
+- `src/app/`: Expo Router screens (home, thread, details, files, terminal, workspace-new, new, settings, connect).
+- `src/components/`: UI primitives, Glass, Dialog, Loader, ActionMenu, Sheet, ChatRows, MessageMarkdown, composer, model picker.
+- `src/lib/protocol.ts`: wire helpers and transcript builder. `harness.ts`: RPC (incl. multipart binary), mux streams. `multipart.ts`: binary RPC responses.
+- `src/lib/workspaceFiles.ts` / `downloads.ts`: file API and device saving. `ansi.ts`: terminal text model. `rewind.ts`: app rewind. `sessionStats.ts`: stats formatting.
+- `src/state/app.tsx`: connection, sessions, workspaces (pinned/archived), pending requests, appearance.
 
 The server is the source of truth. Opening a thread observes it; it does not resume an agent. Prompt identifiers are minted per submitted message. Unknown journal events remain inspectable instead of silently disappearing.

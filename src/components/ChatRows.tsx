@@ -41,11 +41,11 @@ function Mono({ text, label, max = 4000, color }: { text: string; label?: string
 
 function prettyArgs(args: string) { try { return JSON.stringify(JSON.parse(args), null, 2); } catch { return args; } }
 
-export const ChatRow = memo(function ChatRow({ row }: { row: TranscriptRow }) {
+export const ChatRow = memo(function ChatRow({ row, onUserAction }: { row: TranscriptRow; onUserAction?: (row: Extract<TranscriptRow, { kind: 'user' }>) => void }) {
   const { colors } = useApp();
   switch (row.kind) {
     case 'user':
-      return <View style={{ marginLeft: 40, paddingHorizontal: 12, paddingTop: 7, paddingBottom: 1, backgroundColor: colors.bubble, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}><T style="caption2" color="secondary">You</T><MessageMarkdown text={row.text} /></View>;
+      return <Pressable accessibilityHint={onUserAction ? 'Long-press for rewind and copy' : undefined} delayLongPress={350} onLongPress={onUserAction ? () => onUserAction(row) : undefined} style={({ pressed }) => ({ marginLeft: 40, paddingHorizontal: 12, paddingTop: 7, paddingBottom: 1, backgroundColor: colors.bubble, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, borderColor: pressed && onUserAction ? colors.glassEdge : colors.border, opacity: pressed && onUserAction ? 0.85 : 1 })}><View style={{ flexDirection: 'row', alignItems: 'center' }}><View style={{ flex: 1 }}><T style="caption2" color="secondary">You</T></View>{onUserAction ? <Pressable accessibilityRole="button" accessibilityLabel="Message actions" hitSlop={10} onPress={() => onUserAction(row)} style={{ paddingHorizontal: 2 }}><Ionicons name="ellipsis-horizontal" size={14} color={colors.tertiary} /></Pressable> : null}</View><MessageMarkdown text={row.text} /></Pressable>;
     case 'assistant':
       return <View style={{ gap: 4 }}>
         {row.reasoning ? <ProcessRow icon="bulb-outline" title="Thought" detail={row.reasoning.split('\n')[0].slice(0, 60)}><Mono text={row.reasoning} /></ProcessRow> : null}

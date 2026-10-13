@@ -3,6 +3,10 @@ import { FlatList, KeyboardAvoidingView, Platform, Pressable, View } from 'react
 import { Ionicons } from '@expo/vector-icons';
 import { Glass, GlassTarget, GlassTargetProvider } from '../../components/Glass';
 import { Dots, SkeletonChat } from '../../components/Loader';
+import { useActionMenu } from '../../components/ActionMenu';
+import { useDialog } from '../../components/Dialog';
+import { rewindTo, setPendingDraft, takePendingDraft } from '../../lib/rewind';
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { cacheEpoch, readHistory, writeHistory, type CachedHistory } from '../../lib/cache';
 import { randomUUID } from 'expo-crypto';
@@ -22,7 +26,7 @@ export default function Thread() {
   const [historyState, setHistoryState] = useState<'loading' | 'cached' | 'live'>('loading');
   const history = useRef<CachedHistory>({ records: [], cursor: -1, hasMore: false, savedAt: 0 });
   const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false);
-  const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState('');
+  const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState(() => takePendingDraft(id) ?? '');
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
   const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
   const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
@@ -82,6 +86,23 @@ export default function Thread() {
     const first = lastActivity.current === ''; lastActivity.current = activity;
     if (first || atBottom.current) scrollToBottom(!first);
   }, [activity, scrollToBottom]);
+  const menu = useActionMenu(); const dialog = useDialog();
+  // App-native rewind (see lib/rewind.ts): fork before the chosen message, archive the old thread, refill the composer.
+  const messageMenu = useCallback((row: { id: string; text: string }) => {
+    const seq = Number(row.id);
+    menu({ title: 'Your message', subtitle: row.text.length > 90 ? `${row.text.slice(0, 90)}…` : row.text, actions: [
+      { label: 'Rewind to Here', icon: 'arrow-undo-outline', detail: 'Remove this message and everything after it, then edit and resend', onPress: () => { void (async () => {
+        const ok = await dialog.confirm({ title: 'Rewind to this message?', message: 'This message and everything after it are removed from the conversation, and the message goes back into the composer to edit and resend.\n\nThe old thread is archived on the Harness, not deleted. Files the agent changed are not restored.', confirm: 'Rewind', destructive: true, icon: 'arrow-undo-outline' });
+        if (!ok || !client) return;
+        try {
+          const r = await rewindTo(client, { sessionId: id, targetSeq: seq, text: row.text, title: session ? sessionTitle(session) : undefined, running: running || !!session?.running, records });
+          setPendingDraft(r.sessionId, r.draft); await refresh();
+          router.replace({ pathname: '/thread/[id]', params: { id: r.sessionId, harness: harnessUrl } });
+        } catch (e) { await dialog.alert('Couldn’t Rewind', errorMessage(e), 'danger'); }
+      })(); } },
+      { label: 'Copy Text', icon: 'copy-outline', onPress: () => { void Clipboard.setStringAsync(row.text); } },
+    ] });
+  }, [menu, dialog, client, id, session, running, refresh, harnessUrl, records]);
   const send = async () => {
     if (!client || !draft.trim() || busy) return; setBusy(true); setError(''); const content = draft.trim();
     try {
@@ -106,7 +127,7 @@ export default function Thread() {
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 62, paddingBottom: 10, flexGrow: 1 }}
           ListHeaderComponent={hasMore ? <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ alignSelf: 'center', height: 32, paddingHorizontal: 14, borderRadius: 16, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="footnote" color="secondary">Load Earlier Messages</T></Pressable> : null}
           ListEmptyComponent={historyState === 'loading' ? <SkeletonChat /> : <View style={{ flex: 1, justifyContent: 'center' }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>}
-          renderItem={({ item, index }) => { const prev = rows[index - 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = index === 0 ? 0 : quiet(item.kind) && quiet(prev?.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} /></View>; }}
+          renderItem={({ item, index }) => { const prev = rows[index - 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = index === 0 ? 0 : quiet(item.kind) && quiet(prev?.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} onUserAction={client && status === 'connected' ? messageMenu : undefined} /></View>; }}
           ListFooterComponent={<View style={{ gap: 12, marginTop: 12 }}>{live ? <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
