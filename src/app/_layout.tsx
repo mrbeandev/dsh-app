@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from '../state/app';
 import { ActionMenuProvider } from '../components/ActionMenu';
 import { DialogProvider } from '../components/Dialog';
+import { UpdateProvider } from '../state/updates';
 
 function Navigation() {
   const { colors } = useApp();
@@ -17,4 +18,4 @@ function Navigation() {
     </Stack>
   </>;
 }
-export default function RootLayout() { return <AppProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></AppProvider>; }
+export default function RootLayout() { return <AppProvider><UpdateProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></UpdateProvider></AppProvider>; }

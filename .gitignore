@@ -43,3 +43,6 @@ yarn-error.*
 # local only (never commit): agent instructions and project docs
 CLAUDE.md
 docs/
+
+# local tooling
+.claude/

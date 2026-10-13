@@ -5,6 +5,7 @@ import { clearCache, formatBytes, listCaches } from '../lib/cache';
 import { useApp } from '../state/app';
 import { useDialog } from '../components/Dialog';
 import { Header, Row, Screen, Section, T, s } from '../components/ui';
+import { UpdateSection } from '../components/UpdateCard';
 
 /** Settings as an iOS grouped-inset list (HIG › Lists and tables). */
 export default function Settings() {
@@ -28,8 +29,9 @@ export default function Settings() {
     <Section header="Storage" footer="Chats are saved on this device only after you open them. Clearing never deletes anything on the Harness.">
       {caches.length ? caches.map(cache => <Row key={cache.url} icon="archive-outline" iconTint={colors.muted} title={new URL(cache.url).host} value={formatBytes(cache.bytes)} chevron={false} onPress={() => void remove(cache.url)} accessory={<T style="subhead" color="danger">Clear</T>} />) : <Row title="No cached data" chevron={false} />}
     </Section>
+    <UpdateSection />
     <Section header="About" footer="UI adapted from T3 Code mobile; Harness protocol informed by DeepSeek Harness Mobile. Both MIT licensed.">
-      <Row title="Version" value="0.1.0" chevron={false} />
+      <Row title="DSH Mobile on GitHub" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/mrbeandev/dsh-app')} />
       <Row title="T3 Code Mobile" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/pingdotgg/t3code/tree/main/apps/mobile')} />
       <Row title="DeepSeek Harness Mobile" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/sorsama/deepseek-harness-mobile')} />
     </Section>

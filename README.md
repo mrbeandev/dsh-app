@@ -1,80 +1,119 @@
-# DSH Mobile
+<p align="center"><img src=".github/assets/icon.png" width="96" alt="DSH Mobile icon"></p>
 
-A fresh **Expo + React Native + TypeScript** client for DeepSeek Harness. Built from scratch with the UI and screen patterns of T3 Code mobile and the functional/protocol reference of DeepSeek Harness Mobile.
+<h1 align="center">DSH Mobile</h1>
 
-> This repository is **private during development**. Making it public later is a separate, explicit decision. This is an independent community project, not an official T3 or DeepSeek product.
+<p align="center">A mobile client for <a href="https://github.com/deepseek-ai">DeepSeek Harness</a> (DSH): chat with your agents, watch them work live, and manage workspaces, files and terminals from your phone.</p>
 
-## Connection: two fields, nothing else
+<p align="center">
+  <a href="https://github.com/mrbeandev/dsh-app/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/mrbeandev/dsh-app?label=download&color=4f8cff"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Android-3ddc84">
+  <img alt="Expo SDK" src="https://img.shields.io/badge/Expo-SDK%2057-000">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
 
-1. **Harness URL** — a local HTTP address, LAN address, or HTTPS tunnel URL.
-2. **Auth token** — the current launch token printed by Harness.
+<p align="center">
+  <img src=".github/assets/hig-home.png" width="200" alt="Workspaces and threads">
+  <img src=".github/assets/hig-chat.png" width="200" alt="Chat">
+  <img src=".github/assets/details-1.png" width="200" alt="Thread details">
+  <img src=".github/assets/prompt-index.png" width="200" alt="Prompt list">
+</p>
 
-No relay mode selector, discovery, pairing wizard, tunnel provider configuration, or SSH options. The client handles the Harness token-to-cookie exchange and API stream connection internally. A URL containing `?token=` is accepted too; the token is removed from the saved base URL.
+> Independent community project. Not affiliated with or endorsed by DeepSeek or T3.
 
-On a physical phone, `localhost` means that phone, not your computer. Use your computer’s LAN URL or a tunnel when Harness runs elsewhere. Native credentials are stored using Expo SecureStore; the web preview keeps credentials in memory only. Use HTTPS for remote connections. Browser cross-origin connections require server-side origin/CORS and cookie support; native mobile is the primary target. A tunnel with an extra access login is not automatically handled by a Harness token.
+## Install
 
-## Development
+1. Download the latest `.apk` from **[Releases](https://github.com/mrbeandev/dsh-app/releases/latest)** on your Android phone.
+2. Open it and allow installing from your browser or file manager when Android asks.
+3. Later versions install from inside the app: **Settings › App Updates**.
 
-Requires Node.js 22+ and npm.
+Android 7.0 (API 24) or newer. iOS is not released yet.
+
+## Connect
+
+Two fields, nothing else:
+
+| Field | What to enter |
+|---|---|
+| **Harness URL** | Where `dsh web` is reachable: `http://127.0.0.1:3080` on the same phone (e.g. Termux), your computer's LAN address, or an HTTPS tunnel. |
+| **Auth token** | The launch token `dsh web` prints when it starts. |
+
+The app exchanges the token for a session cookie, exactly like the DSH Web UI. Tokens are stored in the device keystore. Use HTTPS for anything that leaves your network.
+
+## Features
+
+**Threads and chat**
+- Workspace tree sorted by last activity, live dot on working threads, pin and archive.
+- Live streaming replies with Markdown, code blocks (copy), quotes and inline code.
+- Tool calls, reasoning, context and compaction shown as compact rows; finished turns fold into *Completed in 4m 5s*.
+- Approvals, questions and **plan review** (approve or keep planning with feedback).
+- Goal and to-do strip above the composer (pause, resume, edit, clear).
+- **Rewind to any earlier message** of yours and resend it (app feature; no Harness plugin needed).
+- **Pinch** the chat (or tap the list icon) to browse every prompt with its date and jump to it.
+- Opens at the latest message; older history loads as you scroll up.
+
+**Thread details** — model, persona and access mode; context usage, token usage (cache hit, input, output) and session statistics (turns, steps, LLM/tool time, TTFT, TPS); copy buttons for IDs and paths.
+
+**Workspace tools**
+- **Files** — browse, preview, and download any file to your phone (byte-exact, any size), then open or share it.
+- **Terminal** — live shells in the thread's workspace, with special keys.
+- Add, rename and remove workspaces; new threads with access mode and persona.
+
+**Built for mobile** — per-Harness cache (SQLite) for instant start and offline reading; only the open thread streams live. Glass-style UI following Apple's Human Interface Guidelines, light and dark.
+
+**In-app updates** — checks GitHub Releases in the background, downloads the new APK with progress, and hands it to Android's installer. You confirm the install.
+
+## Build from source
+
+Requires Node.js 22+, npm, and for Android builds JDK 17+ and the Android SDK.
 
 ```sh
 npm ci
-npm start
-npm run android
-npm run ios
-npm run web
-```
-
-Expo SDK 57; navigation uses Expo Router under `src/app/`. Install dependencies through `npx expo install` to keep SDK compatibility. Native transport and authentication must be tested on physical devices; a web bundle passing does not prove device compatibility.
-
-```sh
+npm start              # Metro dev server
+npm run android        # debug build on a connected device
+npm test               # unit tests (vitest)
 npm run typecheck
 npm run lint
-npm test
-npm run export:web
-npx expo-doctor
 ```
 
-## Current implementation
+`android/` and `ios/` are generated (Expo Continuous Native Generation); configure native behaviour in `app.json` and `plugins/`.
 
-**Design** — Apple HIG layout and type scale with a charcoal glass control layer (matching the approved prototype); glass DeepSeek-whale app icon, adaptive/themed icons and dark splash (`scripts/make-icons.py`).
+### Release builds
 
-**Connection** — one URL + token form, launch-token exchange, strict RPC envelopes, multiplexed WebSocket streams, reconnect backoff. Every feature uses the same backend APIs as the DSH Web UI.
+Release APKs are signed with a key that never lives in this repository. `plugins/withReleaseSigning.js` reads it from environment variables:
 
-**Home** — collapsible workspace tree sorted by last activity, one live dot per working thread, pinned threads first, archived threads hidden. Long-press a thread: Pin, Files, Terminal, Archive. Workspace ⋯ menu: Browse Files, Open Terminal, New Thread Here, Rename, Refresh Cache, Remove. Add a workspace with the Harness folder picker.
+```sh
+export DSH_RELEASE_STORE_FILE=/path/to/release.keystore
+export DSH_RELEASE_STORE_PASSWORD=…
+export DSH_RELEASE_KEY_ALIAS=…
+export DSH_RELEASE_KEY_PASSWORD=…
+npx expo prebuild --platform android --clean
+cd android && ./gradlew assembleRelease
+```
 
-**Chat** — Markdown (code blocks with copy, quotes, inline code), DSH-style event rows (tools with folded approvals, reasoning, context, compaction, system prompt, failures), approvals and questions, model sheet, auto-scroll on send and on every agent update. Long-press or ⋯ on your own message: **Rewind to Here** or Copy.
+Without those variables a release build falls back to the debug key (fine for local testing, but it cannot update an installed official build). To ship a version, bump `version` and `android.versionCode` in `app.json`, then publish a GitHub release tagged `vX.Y.Z` with the APK attached; installed apps pick it up through the updater.
 
-**Rewind (app feature)** — rewinds a thread to any earlier message of yours: the app forks the thread just before that message's turn (`session/fork`), keeps the title, archives the old thread (not deleted), and puts the message back in the composer. Works on any Harness; it does not need or talk to the `dsh-rewind` plugin. Workspace files are not restored.
+## Project layout
 
-**Thread Details** — model, persona, access, directory; Context (percent used with system/tools/messages breakdown), Token Usage (total, cache hit, uncached/cached input, output) and Session Statistics (turns, steps, LLM/tool time, TTFT, TPS) — the Web UI's popovers as sections; Activity (goal, plan, questions, queue, to-dos); readable cache diagnostics.
+```
+src/app/         screens (Expo Router): home, thread, details, files, terminal, settings…
+src/components/  UI: glass surfaces, dialogs, loaders, chat rows, composer, sheets
+src/lib/         Harness client (RPC + WebSocket mux), transcript builder, cache, updater
+src/state/       connection, sessions/workspaces, updates
+plugins/         Expo config plugins (release signing)
+scripts/         make-icons.py — rebuilds every icon from one master image
+```
 
-**Files** — browse, preview text, and download any file to the device (chunked, byte-exact), then Open or Share. **Terminal** — create/close shells, live output, typing and special keys.
+The Harness is the source of truth. The app speaks the same public HTTP/WebSocket API as the DSH Web UI and never touches the Harness's files directly.
 
-**Caching** — per-Harness SQLite catalog/history (IndexedDB on web), cached startup and offline reading, live data only for what is open; cache size and clear per Harness.
+## Credits
 
-**UI building blocks** — reusable app dialog (`useDialog`: confirm/alert/prompt) instead of native alerts; animated loader and skeletons (`components/Loader.tsx`) everywhere data loads.
+This app was rebuilt with two open-source projects as references:
 
+- **[T3 Code — mobile](https://github.com/pingdotgg/t3code/tree/main/apps/mobile)** by T3 Tools Inc. — UI and screen patterns.
+- **[DeepSeek Harness Mobile](https://github.com/sorsama/deepseek-harness-mobile)** — functionality and Harness protocol reference.
 
-### Work still required before release
+Both are MIT licensed; their notices are kept in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [`licenses/`](licenses).
 
-Not yet full parity with the Web UI. Still to do: image/file attachments in the composer, git/diffs, queue editing and steering, subagent management, skills/plugins, automations, notifications, a standalone (non-Metro) release build, and iOS testing.
+## License
 
-## Credits and references
-
-We are rebuilding this app using these two projects as the references:
-
-- **[T3 Code — mobile app](https://github.com/pingdotgg/t3code/tree/main/apps/mobile)** by **T3 Tools Inc.** — the UI/screens reference. Its neutral theme tokens and thread-list/composer/navigation patterns inform this app’s presentation. Licensed under MIT.
-- **[DeepSeek Harness Mobile](https://github.com/sorsama/deepseek-harness-mobile)** by **DSH Mobile contributors** — the functionality and Harness protocol reference. Its documented named-argument RPC, cookie authentication, mux stream, history and question-answer contracts inform this new TypeScript implementation. Licensed under MIT.
-
-Please explore and support both original projects. Their license notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Upstream brands and logos are not claimed by this project.
-
-## Architecture
-
-- `src/app/`: Expo Router screens (home, thread, details, files, terminal, workspace-new, new, settings, connect).
-- `src/components/`: UI primitives, Glass, Dialog, Loader, ActionMenu, Sheet, ChatRows, MessageMarkdown, composer, model picker.
-- `src/lib/protocol.ts`: wire helpers and transcript builder. `harness.ts`: RPC (incl. multipart binary), mux streams. `multipart.ts`: binary RPC responses.
-- `src/lib/workspaceFiles.ts` / `downloads.ts`: file API and device saving. `ansi.ts`: terminal text model. `rewind.ts`: app rewind. `sessionStats.ts`: stats formatting.
-- `src/state/app.tsx`: connection, sessions, workspaces (pinned/archived), pending requests, appearance.
-
-The server is the source of truth. Opening a thread observes it; it does not resume an agent. Prompt identifiers are minted per submitted message. Unknown journal events remain inspectable instead of silently disappearing.
+[MIT](LICENSE) © 2026 mrbeandev

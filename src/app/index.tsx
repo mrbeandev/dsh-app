@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 import { SkeletonRows } from '../components/Loader';
+import { UpdateBanner } from '../components/UpdateCard';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -65,7 +66,7 @@ export default function Home() {
         keyboardDismissMode="on-drag"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} tintColor={colors.muted} progressViewOffset={60} />}
         contentContainerStyle={{ paddingTop: 60, paddingBottom: insets.bottom + 90, flexGrow: 1 }}
-        ListHeaderComponent={<View style={{ paddingHorizontal: 12, gap: 10, paddingBottom: 4 }}>
+        ListHeaderComponent={<><UpdateBanner /><View style={{ paddingHorizontal: 12, gap: 10, paddingBottom: 4 }}>
           <Pressable accessibilityRole="button" accessibilityLabel={`Harness: ${statusText}. Change connection`} onPress={() => router.push('/connect')} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 6 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: live ? colors.live : colors.tertiary }} />
             <T style="footnote" color="secondary" numberOfLines={1}>{statusText}</T>
@@ -77,7 +78,7 @@ export default function Home() {
             <View style={{ flex: 1 }} />
             <T style="caption1" color="secondary">Last updated</T>
           </View>
-        </View>}
+        </View></>}
         renderSectionHeader={({ section }) => { const open = !(collapsed.has(section.id) && !query); const runningHere = section.sessions.some(x => live && x.running); return <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 6, marginTop: 8 }}>
           <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} threads`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
             <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={colors.muted} style={{ width: 12 }} />
