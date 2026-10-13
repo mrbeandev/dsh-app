@@ -41,7 +41,7 @@ export function Glass({ children, style, radius = 22, interactive = false, promi
   const shadow: ViewStyle = Platform.OS === 'android' ? { elevation: 0 } : { boxShadow: colors.dark ? '0 6px 20px #00000059' : '0 6px 20px #0000001a' };
 
   // Without anything to blur (e.g. a sheet over a scrim) translucency only hurts legibility.
-  if (reduce || (solidOnAndroid && Platform.OS !== 'ios')) return <View style={[shape, edge, { backgroundColor: colors.dark ? colors.card : colors.bg }, style]}>{children}</View>;
+  if (reduce || (solidOnAndroid && Platform.OS !== 'ios')) return <View style={[shape, edge, { backgroundColor: colors.dark ? '#28282a' : '#f7f8fa' }, style]}>{children}</View>;
 
   if (NATIVE_GLASS) {
     return <View style={[{ borderRadius: radius }, shadow]}><GlassView glassEffectStyle="regular" isInteractive={interactive} colorScheme={colors.dark ? 'dark' : 'light'} style={[shape, style]}>{children}</GlassView></View>;

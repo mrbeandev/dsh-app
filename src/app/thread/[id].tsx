@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Glass, GlassTarget, GlassTargetProvider } from '../../components/Glass';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
@@ -93,9 +93,9 @@ export default function Thread() {
           renderItem={({ item }) => item.kind === 'tool' || item.kind === 'event'
             ? <Disclosure title={item.label ?? 'Activity'} text={item.text} />
             : item.kind === 'user'
-              ? <View accessibilityLabel={`You said: ${item.text}`} style={{ alignSelf: 'flex-end', maxWidth: '85%', paddingHorizontal: 14, paddingVertical: 9, backgroundColor: colors.bubble, borderRadius: 20, borderBottomRightRadius: 6 }}><MessageMarkdown text={item.text} /></View>
-              : <View><MessageMarkdown text={item.text} /></View>}
-          ListFooterComponent={<View style={{ gap: 14 }}>{live ? <View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><ActivityIndicator size="small" color={colors.muted} /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
+              ? <View style={{ marginLeft: 32, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2, backgroundColor: colors.bubble, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}><T style="caption2" color="secondary">You</T><MessageMarkdown text={item.text} /></View>
+              : <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant</T></View><MessageMarkdown text={item.text} /></View>}
+          ListFooterComponent={<View style={{ gap: 14 }}>{live ? <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><ActivityIndicator size="small" color={colors.muted} /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
       </GlassTarget>
@@ -106,7 +106,7 @@ export default function Thread() {
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
           <Header title={session ? sessionTitle(session) : 'Thread'} subtitle={subtitle || undefined} back>
-            <IconButton icon="ellipsis-horizontal" size={20} label="Thread details" onPress={() => router.push({ pathname: '/thread/details', params: { id } })} />
+            <IconButton icon="ellipsis-horizontal" size={18} label="Thread details" onPress={() => router.push({ pathname: '/thread/details', params: { id } })} />
           </Header>
         </GlassTargetProvider>
       </View>

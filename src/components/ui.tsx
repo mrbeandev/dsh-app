@@ -60,14 +60,17 @@ export function GlassCluster({ children, style }: { children: React.ReactNode; s
  * Compact navigation bar. Controls float as glass capsules over a scroll-edge fade,
  * leaving the content layer untouched (HIG: Materials, Scroll views).
  */
-export function Header({ title, subtitle, back = false, large = false, children }: { title: string; subtitle?: string; back?: boolean; compact?: boolean; large?: boolean; children?: React.ReactNode }) {
+export function Header({ title, subtitle, back = false, large = false, leading, children }: { title: string; subtitle?: string; back?: boolean; compact?: boolean; large?: boolean; leading?: React.ReactNode; children?: React.ReactNode }) {
+  // One slim glass bar holding back · title · actions (matches the approved prototype).
   return <View style={s.header}>
-    {back && <GlassCluster style={{ width: 44, paddingHorizontal: 0, justifyContent: 'center' }}><IconButton icon="chevron-back" label="Back" onPress={() => router.canGoBack() ? router.back() : router.replace('/')} /></GlassCluster>}
-    <View style={{ flex: 1, paddingHorizontal: back ? 6 : 4, justifyContent: 'center' }}>
-      <T style={large ? 'title2' : 'headline'} numberOfLines={1}>{title}</T>
-      {subtitle ? <T style="caption1" color="secondary" numberOfLines={1}>{subtitle}</T> : null}
-    </View>
-    {children ? <GlassCluster>{children}</GlassCluster> : null}
+    <Glass radius={22} style={{ flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, gap: 2 }}>
+      {back ? <IconButton icon="chevron-back" size={20} label="Back" onPress={() => router.canGoBack() ? router.back() : router.replace('/')} /> : leading ?? <View style={{ width: 10 }} />}
+      <View style={{ flex: 1, paddingHorizontal: 4, paddingVertical: subtitle ? 4 : 0, justifyContent: 'center' }}>
+        <T style={large ? 'title3' : 'subhead'} weight="600" numberOfLines={1}>{title}</T>
+        {subtitle ? <T style="caption2" color="secondary" numberOfLines={1}>{subtitle}</T> : null}
+      </View>
+      {children}
+    </Glass>
   </View>;
 }
 
@@ -82,20 +85,23 @@ export function ScrollEdge({ edge = 'top', height = 28 }: { edge?: 'top' | 'bott
 export function Button({ title, onPress, loading, disabled, secondary = false, destructive = false, icon }: { title: string; onPress: () => void; loading?: boolean; disabled?: boolean; secondary?: boolean; destructive?: boolean; icon?: IconName }) {
   const { colors } = useApp();
   const fg = secondary ? (destructive ? colors.danger : colors.primary) : '#ffffff';
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }} disabled={disabled || loading} onPress={onPress} style={({ pressed }) => ({ height: 50, paddingHorizontal: 20, borderRadius: 25, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.fill : destructive ? colors.danger : colors.primary, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>{loading ? <ActivityIndicator color={fg} /> : <>{icon && <Ionicons name={icon} size={18} color={fg} />}<T style="headline" color={fg}>{title}</T></>}</Pressable>;
+  // Prototype style: off-white pill with dark label for the primary action; quiet hairline pill otherwise.
+  const primaryFg = colors.bg;
+  const label = secondary ? fg : destructive ? '#ffffff' : primaryFg;
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }} disabled={disabled || loading} onPress={onPress} style={({ pressed }) => ({ height: 46, paddingHorizontal: 20, borderRadius: 23, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.fill : destructive ? colors.danger : colors.text, borderWidth: secondary ? StyleSheet.hairlineWidth : 0, borderColor: colors.border, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>{loading ? <ActivityIndicator color={label} /> : <>{icon && <Ionicons name={icon} size={18} color={label} />}<T style="headline" color={label}>{title}</T></>}</Pressable>;
 }
 
 /** Grouped inset text field with a footnote label above. */
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
   const { colors } = useApp();
-  return <View style={{ gap: 6 }}><View style={{ paddingHorizontal: 16 }}><T style="footnote" color="secondary">{label.toUpperCase()}</T></View><TextInput accessibilityLabel={label} placeholderTextColor={colors.tertiary} {...props} style={[type.body, { borderRadius: 12, backgroundColor: colors.grouped, color: colors.text, paddingHorizontal: 16, height: 44 }, props.multiline && { height: undefined, minHeight: 88, paddingVertical: 11, textAlignVertical: 'top' }, props.style]} /></View>;
+  return <View style={{ gap: 6 }}><View style={{ paddingHorizontal: 16 }}><T style="footnote" color="secondary">{label.toUpperCase()}</T></View><TextInput accessibilityLabel={label} placeholderTextColor={colors.tertiary} {...props} style={[type.body, { borderRadius: 14, backgroundColor: colors.grouped, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, color: colors.text, paddingHorizontal: 16, height: 44 }, props.multiline && { height: undefined, minHeight: 88, paddingVertical: 11, textAlignVertical: 'top' }, props.style]} /></View>;
 }
 
 /** Search field: 36 pt capsule with a magnifying glass, matching the iOS search bar. */
 export function SearchField({ value, onChangeText, placeholder, glass = false }: { value: string; onChangeText: (v: string) => void; placeholder: string; glass?: boolean }) {
   const { colors } = useApp();
   const inner = <><Ionicons name="search" size={16} color={colors.muted} /><TextInput accessibilityLabel={placeholder} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.muted} returnKeyType="search" clearButtonMode="while-editing" style={[type.body, { flex: 1, color: colors.text, paddingVertical: 0, height: 36 }]} />{value && Platform.OS !== 'ios' ? <IconButton icon="close-circle" size={17} tint={colors.tertiary} label="Clear search" onPress={() => onChangeText('')} /> : null}</>;
-  return glass ? <Glass radius={18} style={s.search}>{inner}</Glass> : <View style={[s.search, { backgroundColor: colors.fill }]}>{inner}</View>;
+  return glass ? <Glass radius={18} style={s.search}>{inner}</Glass> : <View style={[s.search, { backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]}>{inner}</View>;
 }
 
 /** iOS grouped-inset section: footnote caps header, rounded container, optional footer. */
@@ -103,7 +109,7 @@ export function Section({ header, footer, children }: { header?: string; footer?
   const { colors } = useApp();
   return <View style={{ gap: 6 }}>
     {header ? <View style={{ paddingHorizontal: 16 }}><T style="footnote" color="secondary">{header.toUpperCase()}</T></View> : null}
-    <View style={{ backgroundColor: colors.grouped, borderRadius: 12, overflow: 'hidden' }}>{React.Children.toArray(children).filter(Boolean).map((child, i) => <View key={i}>{i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: 16 }} />}{child}</View>)}</View>
+    <View style={{ backgroundColor: colors.grouped, borderRadius: 14, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>{React.Children.toArray(children).filter(Boolean).map((child, i) => <View key={i}>{i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: 16 }} />}{child}</View>)}</View>
     {footer ? <View style={{ paddingHorizontal: 16 }}><T style="footnote" color="secondary">{footer}</T></View> : null}
   </View>;
 }
@@ -129,7 +135,7 @@ export function Empty({ icon = 'chatbubble-outline', title, detail }: { icon?: I
 }
 
 export const s = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8, gap: 6, minHeight: 52 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingTop: 4, paddingBottom: 8, minHeight: 56 },
   body: { padding: 16, gap: 24 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   search: { height: 36, borderRadius: 18, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },

@@ -54,10 +54,9 @@ function SheetBody({ onClose, title, children, height }: { onClose: () => void; 
       <Glass radius={28} prominent solidOnAndroid style={{ flex: 1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: insets.bottom }}>
         <View {...handlers}>
           <Pressable accessibilityRole="button" accessibilityLabel="Dismiss sheet" accessibilityHint="Swipe down or tap to close" onPress={close} style={{ height: 22, alignItems: 'center', justifyContent: 'center' }}><View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: colors.tertiary }} /></Pressable>
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10, minHeight: 36 }}>
-            <View style={{ width: 36 }} />
-            <View style={{ flex: 1, alignItems: 'center' }}><T style="headline">{title}</T></View>
-            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.fill, alignItems: 'center', justifyContent: 'center' }}><IconButton icon="close" size={18} tint={colors.muted} label="Close" onPress={close} /></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 8, paddingBottom: 6, minHeight: 40 }}>
+            <View style={{ flex: 1 }}><T style="headline">{title}</T></View>
+            <IconButton icon="close" size={20} tint={colors.text} label="Close" onPress={close} />
           </View>
         </View>
         {children}

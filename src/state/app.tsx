@@ -7,8 +7,10 @@ import { cacheEpoch, readCatalog, writeCatalog, clearWorkspaceHistory } from '..
 type ThemeMode = 'system' | 'light' | 'dark';
 // Apple HIG semantic system colors (iOS light / dark). Glass tones follow the materials guidance:
 // glass only on the control layer, content stays on solid backgrounds.
-const light = { dark: false, bg: '#ffffff', card: '#ffffff', grouped: '#f2f2f7', text: '#000000', muted: '#3c3c4399', tertiary: '#3c3c434d', border: '#3c3c4333', separator: '#c6c6c8', primary: '#007aff', bubble: '#e9e9eb', danger: '#ff3b30', success: '#34c759', live: '#34c759', glass: '#f9f9f9cc', glassEdge: '#ffffffb3', fill: '#7878801f' };
-const dark = { dark: true, bg: '#000000', card: '#1c1c1e', grouped: '#1c1c1e', text: '#ffffff', muted: '#ebebf599', tertiary: '#ebebf54d', border: '#54545899', separator: '#38383a', primary: '#0a84ff', bubble: '#2c2c2e', danger: '#ff453a', success: '#30d158', live: '#30d158', glass: '#1e1e20cc', glassEdge: '#ffffff1f', fill: '#7878803d' };
+// Palette taken from the approved glass prototype (designs/android-glass-preview): soft charcoal / cool-gray,
+// warm-gray glass with a light hairline edge, off-white text, soft blue accent.
+const light = { dark: false, bg: '#edf1f5', card: '#ffffff', grouped: '#ffffff8a', text: '#202936', muted: '#586677', tertiary: '#58667799', border: '#29426026', separator: '#29426026', primary: '#1c65b9', bubble: '#ffffff8a', danger: '#c62828', success: '#2e7d32', live: '#1c65b9', glass: '#ffffffb3', glassEdge: '#fffffff2', fill: '#2942601a' };
+const dark = { dark: true, bg: '#0e0f11', card: '#1c1c1f', grouped: '#2e2e3175', text: '#edf0f6', muted: '#aeb6c5', tertiary: '#aeb6c580', border: '#d3dff426', separator: '#d3dff426', primary: '#89baff', bubble: '#2e2e3175', danger: '#ff8a80', success: '#81c995', live: '#89baff', glass: '#303032a8', glassEdge: '#e0ebff29', fill: '#2e2e3175' };
 export type Colors = typeof light;
 type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
