@@ -24,7 +24,7 @@ type Api = {
   /** Single-button notice. */
   alert: (title: string, message?: string, tone?: DialogSpec['tone']) => Promise<void>;
   /** Text prompt. Resolves the trimmed text, or null when cancelled. */
-  prompt: (o: { title: string; message?: string; initial?: string; placeholder?: string; confirm?: string; multiline?: boolean }) => Promise<string | null>;
+  prompt: (o: { title: string; message?: string; initial?: string; placeholder?: string; confirm?: string; multiline?: boolean; optional?: boolean }) => Promise<string | null>;
 };
 const Ctx = createContext<Api | null>(null);
 
@@ -40,7 +40,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     show,
     confirm: async o => (await show({ title: o.title, message: o.message, icon: o.icon ?? (o.destructive ? 'warning-outline' : undefined), tone: o.destructive ? 'danger' : 'default', buttons: [{ label: o.cancel ?? 'Cancel', style: 'cancel' }, { label: o.confirm ?? 'OK', style: o.destructive ? 'destructive' : 'primary', value: 'ok' }] })).value === 'ok',
     alert: async (title, message, tone = 'default') => { await show({ title, message, tone, icon: tone === 'danger' ? 'alert-circle-outline' : tone === 'success' ? 'checkmark-circle-outline' : tone === 'warning' ? 'warning-outline' : undefined, buttons: [{ label: 'OK', style: 'primary', value: 'ok' }] }); },
-    prompt: async o => { const r = await show({ title: o.title, message: o.message, input: { initial: o.initial, placeholder: o.placeholder, required: true, multiline: o.multiline }, buttons: [{ label: 'Cancel', style: 'cancel' }, { label: o.confirm ?? 'OK', style: 'primary', value: 'ok' }] }); return r.value === 'ok' ? r.text.trim() : null; },
+    prompt: async o => { const r = await show({ title: o.title, message: o.message, input: { initial: o.initial, placeholder: o.placeholder, required: !o.optional, multiline: o.multiline }, buttons: [{ label: 'Cancel', style: 'cancel' }, { label: o.confirm ?? 'OK', style: 'primary', value: 'ok' }] }); return r.value === 'ok' ? r.text.trim() : null; },
   }), [show]);
   const current = queue[0];
   const done = (r: DialogResult) => { current?.resolve(r); setQueue(q => q.slice(1)); };

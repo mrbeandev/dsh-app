@@ -17,6 +17,7 @@ import { ChatRow } from '../../components/ChatRows';
 import { ChatComposer } from '../../components/ChatComposer';
 import { MessageMarkdown } from '../../components/MessageMarkdown';
 import { PendingRequest } from '../../components/PendingRequest';
+import { PlanReview, planReviewOf } from '../../components/PlanReview';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
 import { expandStream, streamText } from '../../lib/stream';
@@ -129,7 +130,7 @@ export default function Thread() {
           ListHeaderComponent={hasMore ? <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ alignSelf: 'center', height: 32, paddingHorizontal: 14, borderRadius: 16, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="footnote" color="secondary">Load Earlier Messages</T></Pressable> : null}
           ListEmptyComponent={historyState === 'loading' ? <SkeletonChat /> : <View style={{ flex: 1, justifyContent: 'center' }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>}
           renderItem={({ item, index }) => { const prev = rows[index - 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = index === 0 ? 0 : quiet(item.kind) && quiet(prev?.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} onUserAction={client && status === 'connected' ? messageMenu : undefined} /></View>; }}
-          ListFooterComponent={<View style={{ gap: 12, marginTop: 12 }}>{live ? <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
+          ListFooterComponent={<View style={{ gap: 12, marginTop: 12 }}>{live ? <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={`${p.clientId}:${p.eventId}`} frame={p} /> : <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />))}</View>} />
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
       </GlassTarget>
