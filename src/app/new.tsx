@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../state/app';
 import { Button, ErrorNotice, Field, Header, Row, Screen, Section, T, s } from '../components/ui';
 import { errorMessage } from '../lib/harness';
@@ -28,7 +28,8 @@ type Option = { value: string; isDefault: boolean; name?: string; description?: 
 
 export default function NewTask() {
   const { client, refresh } = useApp();
-  const [cwd, setCwd] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const params = useLocalSearchParams<{ cwd?: string }>();
+  const [cwd, setCwd] = useState(params.cwd ?? ''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [personas, setPersonas] = useState<Option[] | null>(null); const [access, setAccess] = useState<Option[] | null>(null);
   const [persona, setPersona] = useState(''); const [mode, setMode] = useState('');
 

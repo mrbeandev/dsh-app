@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { Connection, endpoint, Frame, normalizeConnection, rpcEnvelope } from './protocol';
+import { attachBinary, parseMultipart } from './multipart';
 
 export class HarnessError extends Error {
   constructor(public code: string, message: string) { super(message); }
@@ -44,6 +45,28 @@ export class HarnessClient {
     return data.result.value;
   }
   request<T = any>(method: string, request: Record<string, unknown>) { return this.call<T>(method, { request }); }
+  /** Binary Remote (e.g. workspaceFiles/readBytes): multipart response with JSON metadata + raw byte parts. */
+  async callBinary<T = any>(method: string, args: Record<string, unknown>): Promise<T> {
+    const rpcId = randomUUID();
+    const response = await fetch(endpoint(this.connection.url, `/api/${method}`), {
+      method: 'POST', credentials: 'include', signal: AbortSignal.timeout(120000),
+      headers: { 'Content-Type': 'application/json', ...(Platform.OS !== 'web' && this.cookie ? { Cookie: this.cookie } : {}) },
+      body: JSON.stringify(rpcEnvelope(method, args, rpcId)),
+    });
+    if (response.status === 401) throw new HarnessError('unauthenticated', 'Auth token expired. Reconnect with the current Harness token.');
+    if (!response.ok) throw new HarnessError('transport', `Harness request failed (${response.status}).`);
+    const type = response.headers.get('content-type') ?? '';
+    const body = new Uint8Array(await response.arrayBuffer());
+    if (!type.startsWith('multipart/')) {
+      const data = JSON.parse(new TextDecoder().decode(body));
+      if (!data.result?.ok) throw new HarnessError(data.result?.error?.code ?? 'unknown', data.result?.error?.message ?? 'Harness request failed.');
+      return data.result.value;
+    }
+    const { metadata, parts } = parseMultipart(body, type);
+    if (metadata?.rpcId !== rpcId) throw new HarnessError('protocol', 'Unexpected Harness response.');
+    if (!metadata.result?.ok) throw new HarnessError(metadata.result?.error?.code ?? 'unknown', metadata.result?.error?.message ?? 'Harness request failed.');
+    return attachBinary(metadata, parts);
+  }
   connectStreams() {
     this.closed = false;
     const url = endpoint(this.connection.url, '/api/remote.mux').replace(/^http/, 'ws');

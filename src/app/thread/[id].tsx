@@ -116,6 +116,8 @@ export default function Thread() {
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
           <Header title={session ? sessionTitle(session) : 'Thread'} subtitle={subtitle || undefined} back>
+            <IconButton icon="folder-open-outline" size={18} label="Files" onPress={() => router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd } })} />
+            <IconButton icon="terminal-outline" size={18} label="Terminal" onPress={() => router.push({ pathname: '/terminal', params: { sessionId: id } })} />
             <IconButton icon="ellipsis-horizontal" size={18} label="Thread details" onPress={() => router.push({ pathname: '/thread/details', params: { id } })} />
           </Header>
         </GlassTargetProvider>

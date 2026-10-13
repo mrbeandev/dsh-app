@@ -1,6 +1,8 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from '../state/app';
+import { ActionMenuProvider } from '../components/ActionMenu';
+import { PromptProvider } from '../components/PromptSheet';
 
 function Navigation() {
   const { colors } = useApp();
@@ -11,7 +13,8 @@ function Navigation() {
       <Stack.Screen name="connect" options={{ presentation: 'modal' }} />
       <Stack.Screen name="new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="workspace-new" options={{ presentation: 'modal' }} />
     </Stack>
   </>;
 }
-export default function RootLayout() { return <AppProvider><Navigation /></AppProvider>; }
+export default function RootLayout() { return <AppProvider><ActionMenuProvider><PromptProvider><Navigation /></PromptProvider></ActionMenuProvider></AppProvider>; }

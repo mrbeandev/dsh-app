@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ActionSheetIOS, Alert, Platform, Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,29 +10,49 @@ import { sessionTitle } from '../lib/protocol';
 import { errorMessage } from '../lib/harness';
 import { groupWorkspaces } from '../lib/workspaces';
 import { relativeTime } from '../lib/time';
+import { useActionMenu } from '../components/ActionMenu';
+import { usePrompt } from '../components/PromptSheet';
 
 type Filter = 'All' | 'Working';
 
 /** Workspace tree home — layout and palette follow the approved glass prototype (screen 01). */
 export default function Home() {
-  const { colors, sessions, workspaces, client, status, savedUrl, loading, refresh, refreshWorkspace, pending } = useApp();
+  const { colors, sessions, workspaces, archived, pinned, client, status, savedUrl, loading, refresh, refreshWorkspace, pending } = useApp();
   const insets = useSafeAreaInsets();
   const target = useRef<View>(null);
   const [query, setQuery] = useState(''); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState('');
   const [filter, setFilter] = useState<Filter>('All'); const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const live = status === 'connected';
-  const rows = useMemo(() => sessions.filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || (live && x.running))), [sessions, query, filter, live]);
-  const sections = useMemo(() => groupWorkspaces(rows, workspaces).filter(g => g.sessions.length || (!query && filter === 'All')).map(g => ({ ...g, data: collapsed.has(g.id) && !query ? [] : g.sessions })), [rows, workspaces, query, filter, collapsed]);
+  const rows = useMemo(() => sessions.filter(x => !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || (live && x.running))), [sessions, archived, query, filter, live]);
+  const sections = useMemo(() => groupWorkspaces(rows, workspaces).filter(g => g.sessions.length || (!query && filter === 'All')).map(g => ({ ...g, sessions: [...g.sessions].sort((a, b) => Number(pinned.includes(b.sessionId)) - Number(pinned.includes(a.sessionId))) })).map(g => ({ ...g, data: collapsed.has(g.id) && !query ? [] : g.sessions })), [rows, workspaces, query, filter, collapsed, pinned]);
   const workingCount = sessions.filter(x => live && x.running).length;
   const toggle = (id: string) => setCollapsed(p => { const next = new Set(p); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const reload = async () => { setRefreshing(true); try { await refresh(); setError(''); } catch (e) { setError(errorMessage(e)); } finally { setRefreshing(false); } };
   const host = client ? new URL(client.connection.url).host : savedUrl ? new URL(savedUrl).host : '';
   const statusText = !host ? 'Not connected' : live ? host : status === 'connecting' ? `${host} · Connecting…` : `${host} · Offline`;
 
-  const workspaceMenu = (title: string, ids: string[]) => {
-    const run = () => { void refreshWorkspace(ids).catch(e => setError(errorMessage(e))); };
-    if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({ title, message: 'Chats download again only when opened.', options: ['Refresh Workspace Cache', 'Cancel'], cancelButtonIndex: 1 }, i => { if (i === 0) run(); });
-    else Alert.alert(title, 'Refresh this workspace and clear its saved chats on this device. Chats download again only when opened.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Refresh', onPress: run }]);
+  const menu = useActionMenu(); const prompt = usePrompt();
+  const act = (fn: () => Promise<unknown>) => { void fn().then(() => refresh()).catch(e => setError(errorMessage(e))); };
+  const confirm = (title: string, message: string, label: string, run: () => void) => Alert.alert(title, message, [{ text: 'Cancel', style: 'cancel' }, { text: label, style: 'destructive', onPress: run }]);
+  /** Workspace actions via the official workspace API (same calls the Web UI sidebar makes). */
+  const workspaceMenu = (section: { id: string; title: string; path: string; sessions: { sessionId: string }[] }) => {
+    const real = !section.id.startsWith('path:'); const first = section.sessions[0]?.sessionId;
+    menu({ title: section.title, subtitle: section.path, actions: [
+      ...(first ? [{ label: 'Browse Files', icon: 'folder-open-outline' as const, onPress: () => router.push({ pathname: '/files', params: { sessionId: first, root: section.path } }) }, { label: 'Open Terminal', icon: 'terminal-outline' as const, onPress: () => router.push({ pathname: '/terminal', params: { sessionId: first } }) }] : []),
+      { label: 'New Thread Here', icon: 'add-circle-outline', onPress: () => router.push({ pathname: '/new', params: { cwd: section.path } }) },
+      ...(real ? [{ label: 'Rename', icon: 'pencil-outline' as const, onPress: () => prompt({ title: 'Rename Workspace', initial: section.title, confirm: 'Rename', onSubmit: t => act(() => client!.call('workspace/rename', { request: { workspaceId: section.id, title: t } })) }) }] : []),
+      { label: 'Refresh Cache', icon: 'refresh-outline', detail: 'Chats download again only when opened', onPress: () => { void refreshWorkspace(section.sessions.map(x => x.sessionId)).catch(e => setError(errorMessage(e))); } },
+      ...(real ? [{ label: 'Remove Workspace', icon: 'trash-outline' as const, destructive: true, detail: 'Removes it from the list; files stay on disk', onPress: () => confirm(`Remove ${section.title}?`, 'The folder and its files stay on the Harness. Only the workspace entry is removed.', 'Remove', () => act(() => client!.call('workspace/delete', { request: { workspaceId: section.id } }))) }] : []),
+    ] });
+  };
+  const threadMenu = (sessionId: string, title: string) => {
+    const isPinned = pinned.includes(sessionId);
+    menu({ title, actions: [
+      { label: isPinned ? 'Unpin' : 'Pin to Top', icon: isPinned ? 'pin' : 'pin-outline', onPress: () => act(() => client!.call(isPinned ? 'workspace/unpinSession' : 'workspace/pinSession', { request: { sessionId } })) },
+      { label: 'Browse Files', icon: 'folder-open-outline', onPress: () => router.push({ pathname: '/files', params: { sessionId } }) },
+      { label: 'Open Terminal', icon: 'terminal-outline', onPress: () => router.push({ pathname: '/terminal', params: { sessionId } }) },
+      { label: 'Archive', icon: 'archive-outline', destructive: true, detail: 'Hides it from the list; nothing is deleted', onPress: () => act(() => client!.call('workspace/archiveSession', { request: { sessionId, stopActivity: true } })) },
+    ] });
   };
 
   return <Screen edges={['top']}>
@@ -65,14 +85,15 @@ export default function Home() {
             <T style="caption1" color="secondary">{section.sessions.length}</T>
             {!open && runningHere ? <View accessibilityLabel="Has a live thread" style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live }} /> : null}
           </Pressable>
-          <IconButton icon="ellipsis-horizontal" size={17} tint={colors.muted} label={`Options for ${section.title}`} onPress={() => workspaceMenu(section.title, section.sessions.map(x => x.sessionId))} />
+          <IconButton icon="ellipsis-horizontal" size={17} tint={colors.muted} label={`Options for ${section.title}`} onPress={() => workspaceMenu(section)} />
         </View>; }}
         renderItem={({ item }) => {
           const active = item.running && live; const attention = pending.some(p => p.agentId === item.sessionId);
           return <View style={{ marginLeft: 19, paddingLeft: 10, paddingRight: 12, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator }}>
-            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} style={({ pressed }) => ({ minHeight: 38, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 38, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: attention ? '#ffb74d' : active ? colors.live : 'transparent' }} />
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>
+              {pinned.includes(item.sessionId) ? <Ionicons name="pin" size={11} color={colors.muted} /> : null}
               <T style="caption2" color="secondary">{relativeTime(item.updatedAt)}</T>
             </Pressable>
           </View>;
@@ -90,6 +111,7 @@ export default function Home() {
       <ScrollEdge height={64} />
       <GlassTargetProvider value={target}>
         <Header title="DSH" large leading={<View style={{ width: 8 }} />}>
+          {client ? <IconButton icon="folder-open-outline" size={19} label="Add workspace" onPress={() => router.push('/workspace-new')} /> : null}
           <IconButton icon="settings-outline" size={19} label="Settings" onPress={() => router.push('/settings')} />
         </Header>
       </GlassTargetProvider>
