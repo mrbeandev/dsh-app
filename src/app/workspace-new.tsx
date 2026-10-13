@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { SkeletonRows } from '../components/Loader';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useApp } from '../state/app';
+import { useDialog } from '../components/Dialog';
 import { Button, ErrorNotice, Header, IconButton, Screen, T } from '../components/ui';
 import { errorMessage } from '../lib/harness';
-import { usePrompt } from '../components/PromptSheet';
 
 type Listing = { path: string; home: string; crumbs: { name: string; path: string }[]; entries: { name: string; path: string; hidden: boolean }[] };
 
 /** Add a workspace by browsing Harness folders with the Web UI's own directoryPicker API. */
 export default function NewWorkspace() {
   const { client, colors, refresh } = useApp();
+  const dialog = useDialog();
   const [path, setPath] = useState<string | undefined>(undefined); const [listing, setListing] = useState<Listing | null>(null);
   const [showHidden, setShowHidden] = useState(false); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
 
@@ -24,17 +26,20 @@ export default function NewWorkspace() {
   const go = (p: string) => { setListing(null); setPath(p); };
   const create = async () => {
     if (!client || !listing) return; setBusy(true);
-    try { const r = await client.call('workspace/create', { request: { path: listing.path } }); await refresh(); if (!r?.created) Alert.alert('Already a Workspace', `${r?.workspace?.title ?? listing.path} is already in your workspace list.`); router.back(); }
+    try { const r = await client.call('workspace/create', { request: { path: listing.path } }); await refresh(); if (!r?.created) await dialog.alert('Already a Workspace', `${r?.workspace?.title ?? listing.path} is already in your workspace list.`); router.back(); }
     catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
-  const prompt = usePrompt();
-  const newFolder = () => prompt({ title: 'New Folder', message: `Create inside ${listing?.path}`, placeholder: 'Folder name', confirm: 'Create', onSubmit: name => { if (!client || !listing) return; void client.call<string>('directoryPicker/createDirectory', { path: listing.path, name }).then(go).catch(e => setError(errorMessage(e))); } });
+  const newFolder = async () => {
+    const name = await dialog.prompt({ title: 'New Folder', message: `Create inside ${listing?.path}`, placeholder: 'Folder name', confirm: 'Create' });
+    if (!name || !client || !listing) return;
+    try { go(await client.call<string>('directoryPicker/createDirectory', { path: listing.path, name })); } catch (e) { setError(errorMessage(e)); }
+  };
 
   const entries = (listing?.entries ?? []).filter(e => showHidden || !e.hidden);
   return <Screen>
     <Header title="Add Workspace" back>
       <IconButton icon={showHidden ? 'eye-outline' : 'eye-off-outline'} size={18} label={showHidden ? 'Hide hidden folders' : 'Show hidden folders'} onPress={() => setShowHidden(v => !v)} />
-      <IconButton icon="add" size={20} label="New folder" onPress={newFolder} />
+      <IconButton icon="add" size={20} label="New folder" onPress={() => void newFolder()} />
     </Header>
     <View style={{ paddingHorizontal: 14, paddingBottom: 6, gap: 4 }}>
       <T style="caption1" color="secondary">Pick a folder on the Harness. New threads can then start there.</T>
@@ -46,7 +51,7 @@ export default function NewWorkspace() {
       </View>
     </View>
     <ErrorNotice message={error} />
-    {!listing ? <ActivityIndicator style={{ marginTop: 40 }} color={colors.muted} /> : <FlatList data={entries} keyExtractor={e => e.path} contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }}
+    {!listing ? <SkeletonRows rows={8} indent={false} /> : <FlatList data={entries} keyExtractor={e => e.path} contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }}
       ListHeaderComponent={listing.path !== listing.home ? <Pressable accessibilityRole="button" onPress={() => go(listing.home)} style={({ pressed }) => [s.row, { opacity: pressed ? 0.5 : 1 }]}><Ionicons name="home-outline" size={17} color={colors.muted} /><T style="footnote" color="secondary">Home</T></Pressable> : null}
       ListEmptyComponent={<T style="footnote" color="secondary" align="center">No subfolders.</T>}
       renderItem={({ item }) => <Pressable accessibilityRole="button" onPress={() => go(item.path)} style={({ pressed }) => [s.row, { backgroundColor: pressed ? colors.fill : 'transparent' }]}><Ionicons name="folder" size={18} color={colors.primary} /><T style="footnote" numberOfLines={1} styleOverride={{ flex: 1, fontSize: 14 }}>{item.name}</T><Ionicons name="chevron-forward" size={13} color={colors.tertiary} /></Pressable>} />}

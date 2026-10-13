@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dots } from './Loader';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../state/app';
 import { T } from './ui';
@@ -20,7 +21,7 @@ function ProcessRow({ icon, iconColor, title, detail, children, tone, busy, defa
   const color = tone === 'error' ? colors.danger : tone === 'warning' ? '#ffb74d' : colors.muted;
   return <View>
     <Pressable accessibilityRole={expandable ? 'button' : undefined} accessibilityState={expandable ? { expanded: open } : undefined} disabled={!expandable} onPress={() => setOpen(o => !o)} hitSlop={{ top: 6, bottom: 6 }} style={({ pressed }) => ({ minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.55 : 1 })}>
-      {busy ? <ActivityIndicator size="small" color={colors.muted} style={{ transform: [{ scale: 0.7 }], width: 14 }} /> : <Ionicons name={icon} size={14} color={iconColor ?? color} />}
+      {busy ? <View style={{ width: 14, alignItems: 'center' }}><Dots size="sm" color={colors.muted} /></View> : <Ionicons name={icon} size={14} color={iconColor ?? color} />}
       <View style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'center' }}>{typeof title === 'string' ? <T style="footnote" color={color} numberOfLines={1}>{title}</T> : title}</View>
       {detail ? <T style="caption1" color="tertiary" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{detail}</T> : null}
       {expandable ? <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={11} color={colors.tertiary} /> : null}

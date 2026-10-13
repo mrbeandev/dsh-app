@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Glass, GlassTarget, GlassTargetProvider } from '../../components/Glass';
+import { Dots, SkeletonChat } from '../../components/Loader';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { cacheEpoch, readHistory, writeHistory, type CachedHistory } from '../../lib/cache';
 import { randomUUID } from 'expo-crypto';
@@ -17,7 +18,8 @@ import { expandStream, streamText } from '../../lib/stream';
 export default function Thread() {
   const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status } = useApp();
   const harnessUrl = harness ?? client?.connection.url ?? savedUrl;
-  const [, setHistoryState] = useState('cached');
+  // 'loading' until either the local cache or the live snapshot answers; the skeleton shows meanwhile.
+  const [historyState, setHistoryState] = useState<'loading' | 'cached' | 'live'>('loading');
   const history = useRef<CachedHistory>({ records: [], cursor: -1, hasMore: false, savedAt: 0 });
   const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false);
   const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState('');
@@ -30,7 +32,7 @@ export default function Thread() {
     const epoch = cacheEpoch(harnessUrl);
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
     const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); }, 400); };
-    void readHistory(harnessUrl, id).then(cached => { if (active && !receivedLive && cached) { history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } }).catch(() => {});
+    void readHistory(harnessUrl, id).then(cached => { if (active && !receivedLive && cached) { history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
     liveChunks.current.clear();
     if (!client || client.connection.url !== harnessUrl) return () => { active = false; };
     const stop = client.follow('session/follow', { request: { address: { kind: 'session', sessionId: id }, maxMessages: 60, assistantStream: true } }, frame => {
@@ -103,9 +105,9 @@ export default function Thread() {
         <FlatList ref={list} onScrollBeginDrag={() => { userScrolled.current = true; }} onContentSizeChange={() => { if (atBottom.current) list.current?.scrollToEnd({ animated: false }); }} onScroll={e => { if (!userScrolled.current) return; const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent; atBottom.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 100; setJumpVisible(!atBottom.current); }} scrollEventThrottle={100} keyboardDismissMode="interactive" data={rows} keyExtractor={x => x.id}
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 62, paddingBottom: 10, flexGrow: 1 }}
           ListHeaderComponent={hasMore ? <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ alignSelf: 'center', height: 32, paddingHorizontal: 14, borderRadius: 16, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="footnote" color="secondary">Load Earlier Messages</T></Pressable> : null}
-          ListEmptyComponent={<View style={{ flex: 1, justifyContent: 'center' }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>}
+          ListEmptyComponent={historyState === 'loading' ? <SkeletonChat /> : <View style={{ flex: 1, justifyContent: 'center' }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>}
           renderItem={({ item, index }) => { const prev = rows[index - 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = index === 0 ? 0 : quiet(item.kind) && quiet(prev?.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} /></View>; }}
-          ListFooterComponent={<View style={{ gap: 12, marginTop: 12 }}>{live ? <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><ActivityIndicator size="small" color={colors.muted} /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
+          ListFooterComponent={<View style={{ gap: 12, marginTop: 12 }}>{live ? <View><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}{pending.filter(p => p.agentId === id).map(p => <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />)}</View>} />
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
       </GlassTarget>

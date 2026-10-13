@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Loading } from './Loader';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../state/app';
 import { errorMessage } from '../lib/harness';
@@ -16,7 +17,7 @@ export function ModelPicker({ sessionId, visible, onClose, onSelected, current }
     <View style={{ paddingHorizontal: 12, paddingBottom: 4 }}><SearchField value={query} onChangeText={setQuery} placeholder="Search models" /></View>
     <ErrorNotice message={error} />
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 24 }}>
-      {!catalog && !error ? <ActivityIndicator color={colors.muted} style={{ marginTop: 24 }} /> : null}
+      {!catalog && !error ? <Loading fill={false} size="md" label="Loading models…" /> : null}
       {catalog && !groups.length ? <View style={{ padding: 16 }}><T style="footnote" color="secondary" align="center">No models match your search.</T></View> : null}
       {groups.map((group: any) => <View key={group.id}>
         <View style={{ paddingHorizontal: 8, paddingTop: 12, paddingBottom: 4 }}><T style="caption2" color="secondary" weight="500" styleOverride={{ letterSpacing: 0.6 }}>{String(group.name ?? group.id).toUpperCase()}</T></View>

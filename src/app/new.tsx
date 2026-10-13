@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, View } from 'react-native';
+import { ScrollView } from 'react-native';
+import { Loading } from '../components/Loader';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../state/app';
+import { useDialog } from '../components/Dialog';
 import { Button, ErrorNotice, Field, Header, Row, Screen, Section, T, s } from '../components/ui';
 import { errorMessage } from '../lib/harness';
 
@@ -28,6 +30,7 @@ type Option = { value: string; isDefault: boolean; name?: string; description?: 
 
 export default function NewTask() {
   const { client, refresh } = useApp();
+  const dialog = useDialog();
   const params = useLocalSearchParams<{ cwd?: string }>();
   const [cwd, setCwd] = useState(params.cwd ?? ''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [personas, setPersonas] = useState<Option[] | null>(null); const [access, setAccess] = useState<Option[] | null>(null);
@@ -49,7 +52,7 @@ export default function NewTask() {
   const pickMode = (value: string) => {
     if (value !== 'danger-full-access' && value !== 'auto') { setMode(value); return; }
     // The Web UI asks for an explicit acknowledgement before full access.
-    Alert.alert(`${access?.find(x => x.value === value)?.name || ACCESS[value]?.title || titleCase(value)}?`, 'The agent can run any command and change any file without asking. Use only in a trusted, disposable environment.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Allow', style: 'destructive', onPress: () => setMode(value) }]);
+    void dialog.confirm({ title: `${access?.find(x => x.value === value)?.name || ACCESS[value]?.title || titleCase(value)}?`, message: 'The agent can run any command and change any file without asking. Use only in a trusted, disposable environment.', confirm: 'Allow', destructive: true, icon: 'shield-outline' }).then(ok => { if (ok) setMode(value); });
   };
 
   const create = async () => {
@@ -62,7 +65,7 @@ export default function NewTask() {
       const defaultMode = access?.find(x => x.isDefault)?.value;
       if (mode && mode !== defaultMode) {
         try { await client.call('commands/execute', { agentId: result.sessionId, line: `/permission ${mode}`, submittedAttachments: [] }); }
-        catch (e) { Alert.alert('Access mode not applied', `${errorMessage(e)}\n\nThe thread was created with the default access mode.`); }
+        catch (e) { await dialog.alert('Access mode not applied', `${errorMessage(e)}\n\nThe thread was created with the default access mode.`, 'warning'); }
       }
       await refresh(); router.replace({ pathname: '/thread/[id]', params: { id: result.sessionId } });
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
@@ -71,10 +74,10 @@ export default function NewTask() {
   return <Screen><Header title="New Thread" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
     <Field label="Working Directory" placeholder="Harness default" value={cwd} onChangeText={setCwd} autoCorrect={false} autoCapitalize="none" />
     <Section header="Access" footer="What the agent may do without asking. You can change it later with /permission.">
-      {access === null ? <View style={{ padding: 14 }}><ActivityIndicator /></View> : access.length ? access.map(o => <Row key={o.value} title={o.name || ACCESS[o.value]?.title || titleCase(o.value)} subtitle={o.description || ACCESS[o.value]?.detail} value={o.isDefault ? 'Default' : undefined} selected={mode === o.value} chevron={false} onPress={() => pickMode(o.value)} />) : <Row title="Harness default" subtitle="This Harness doesn’t expose access modes." chevron={false} />}
+      {access === null ? <Loading fill={false} size="md" label="Loading access modes…" /> : access.length ? access.map(o => <Row key={o.value} title={o.name || ACCESS[o.value]?.title || titleCase(o.value)} subtitle={o.description || ACCESS[o.value]?.detail} value={o.isDefault ? 'Default' : undefined} selected={mode === o.value} chevron={false} onPress={() => pickMode(o.value)} />) : <Row title="Harness default" subtitle="This Harness doesn’t expose access modes." chevron={false} />}
     </Section>
     <Section header="Persona" footer="The agent preset: which tools and instructions the agent starts with.">
-      {personas === null ? <View style={{ padding: 14 }}><ActivityIndicator /></View> : personas.length ? personas.map(o => <Row key={o.value} title={o.name || PERSONA[o.value]?.title || titleCase(o.value)} subtitle={o.broken ? `Unavailable: ${o.broken}` : o.description || PERSONA[o.value]?.detail} value={o.isDefault ? 'Default' : o.value} selected={persona === o.value} chevron={false} onPress={o.broken ? undefined : () => setPersona(o.value)} />) : <Row title="Harness default" subtitle="This Harness doesn’t expose personas." chevron={false} />}
+      {personas === null ? <Loading fill={false} size="md" label="Loading personas…" /> : personas.length ? personas.map(o => <Row key={o.value} title={o.name || PERSONA[o.value]?.title || titleCase(o.value)} subtitle={o.broken ? `Unavailable: ${o.broken}` : o.description || PERSONA[o.value]?.detail} value={o.isDefault ? 'Default' : o.value} selected={persona === o.value} chevron={false} onPress={o.broken ? undefined : () => setPersona(o.value)} />) : <Row title="Harness default" subtitle="This Harness doesn’t expose personas." chevron={false} />}
     </Section>
     <ErrorNotice message={error} />
     <Button title="Create Thread" onPress={create} disabled={!client} loading={busy} />

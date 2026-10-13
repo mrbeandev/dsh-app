@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dots, Loading, SkeletonRows } from '../components/Loader';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { useApp } from '../state/app';
+import { useDialog } from '../components/Dialog';
 import { Empty, ErrorNotice, Header, IconButton, Screen, SearchField, T } from '../components/ui';
 import { Sheet } from '../components/Sheet';
 import { errorMessage } from '../lib/harness';
@@ -56,7 +58,7 @@ export default function Files() {
       <SearchField value={query} onChangeText={setQuery} placeholder="Filter this folder" />
     </View>
     <ErrorNotice message={error} />
-    {entries === null ? <ActivityIndicator style={{ marginTop: 40 }} color={colors.muted} /> : <FlatList
+    {entries === null ? <SkeletonRows rows={9} indent={false} /> : <FlatList
       data={shown} keyExtractor={e => e.name}
       contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 32 }}
       ListHeaderComponent={path ? <Pressable accessibilityRole="button" accessibilityLabel="Up one folder" onPress={() => go(crumbs.slice(0, -1).join('/'))} style={({ pressed }) => [s.row, { opacity: pressed ? 0.5 : 1 }]}><Ionicons name="arrow-up" size={17} color={colors.muted} /><T style="footnote" color="secondary">..</T></Pressable> : null}
@@ -73,7 +75,7 @@ export default function Files() {
 }
 
 function FileSheet({ sessionId, path, entry, onClose }: { sessionId: string; path: string; entry: FileEntry; onClose: () => void }) {
-  const { client, colors } = useApp();
+  const { client, colors } = useApp(); const dialog = useDialog();
   const [preview, setPreview] = useState<string | null>(null); const [previewNote, setPreviewNote] = useState('');
   const [progress, setProgress] = useState<number | null>(null); const [saved, setSaved] = useState<SavedFile | null>(null); const [error, setError] = useState('');
   const textual = isTextLike(entry.name) && (entry.size ?? 0) <= 2 * 1024 * 1024;
@@ -99,15 +101,15 @@ function FileSheet({ sessionId, path, entry, onClose }: { sessionId: string; pat
       {saved ? <View style={{ borderRadius: 14, padding: 12, gap: 10, backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Ionicons name="checkmark-circle" size={18} color={colors.primary} /><View style={{ flex: 1 }}><T style="footnote" weight="600">Downloaded</T><T style="caption1" color="secondary" numberOfLines={2}>{saved.publicUri ? `Saved to ${saved.folderName ?? 'your chosen folder'} as ${saved.name}` : `Saved in the app as ${saved.name}`}</T></View></View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Pill icon="open-outline" label="Open" onPress={() => void openFile(saved).catch(e => Alert.alert('No app to open this file', errorMessage(e)))} />
-          <Pill icon="share-outline" label="Share" onPress={() => void shareFile(saved).catch(e => Alert.alert('Couldn’t share', errorMessage(e)))} />
+          <Pill icon="open-outline" label="Open" onPress={() => void openFile(saved).catch(e => dialog.alert('No App to Open This File', `Install an app that opens .${entry.name.split('.').pop()} files, or use Share.\n\n${errorMessage(e)}`, 'warning'))} />
+          <Pill icon="share-outline" label="Share" onPress={() => void shareFile(saved).catch(e => dialog.alert('Couldn’t Share', errorMessage(e), 'danger'))} />
         </View>
       </View> : <Pressable accessibilityRole="button" accessibilityLabel={`Download ${entry.name} to this device`} disabled={progress !== null} onPress={() => void download()} style={({ pressed }) => ({ height: 44, borderRadius: 22, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: pressed || progress !== null ? 0.7 : 1 })}>
-        {progress !== null ? <><ActivityIndicator color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>{Math.round(progress * 100)}%</T></> : <><Ionicons name="download-outline" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>Download to Device</T></>}
+        {progress !== null ? <><Dots size="sm" color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>{Math.round(progress * 100)}%</T></> : <><Ionicons name="download-outline" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>Download to Device</T></>}
       </Pressable>}
       <ErrorNotice message={error} />
       {textual ? <View style={{ flex: 1, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.dark ? '#18181b' : '#f6f8fa', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
-        {preview === null && !previewNote ? <ActivityIndicator style={{ marginTop: 24 }} color={colors.muted} /> : <ScrollView contentContainerStyle={{ padding: 10 }}><ScrollView horizontal showsHorizontalScrollIndicator={false}><Text selectable style={{ color: colors.text, fontFamily: MONO, fontSize: 11, lineHeight: 16 }}>{preview ?? ''}</Text></ScrollView></ScrollView>}
+        {preview === null && !previewNote ? <Loading label="Loading preview…" size="md" /> : <ScrollView contentContainerStyle={{ padding: 10 }}><ScrollView horizontal showsHorizontalScrollIndicator={false}><Text selectable style={{ color: colors.text, fontFamily: MONO, fontSize: 11, lineHeight: 16 }}>{preview ?? ''}</Text></ScrollView></ScrollView>}
       </View> : <View style={{ alignItems: 'center', paddingTop: 20, gap: 6 }}><Ionicons name={iconFor(entry)} size={40} color={colors.tertiary} /><T style="footnote" color="secondary" align="center">No preview for this file type. Download it to open in another app.</T></View>}
       {previewNote ? <T style="caption1" color="secondary">{previewNote}</T> : null}
     </View>

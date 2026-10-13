@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Loading } from '../components/Loader';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { randomUUID } from 'expo-crypto';
 import { useApp } from '../state/app';
+import { useDialog } from '../components/Dialog';
 import { Empty, ErrorNotice, Header, IconButton, Screen, T } from '../components/ui';
 import { errorMessage } from '../lib/harness';
 import { TermBuffer } from '../lib/ansi';
@@ -17,6 +19,7 @@ const KEYS: { label: string; data: string }[] = [{ label: 'Ctrl-C', data: '\u000
 export default function Terminal() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const { client, colors, status } = useApp();
+  const dialog = useDialog();
   const [terms, setTerms] = useState<TermInfo[] | null>(null); const [active, setActive] = useState<string>(''); const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const load = () => setReload(r => r + 1);
@@ -32,7 +35,10 @@ export default function Terminal() {
     try { const info = await client.call<TermInfo>('terminal/create', { agentId: sessionId, request: { id: `term-${randomUUID().slice(0, 8)}`, cols: COLS, rows: ROWS } }); setTerms(t => [...(t ?? []), info]); setActive(info.id); }
     catch (e) { setError(errorMessage(e)); }
   };
-  const close = (t: TermInfo) => Alert.alert(`Close ${t.title}?`, 'This ends the shell process on the Harness.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Close', style: 'destructive', onPress: () => { void client?.call('terminal/close', { agentId: sessionId, id: t.id }).then(load).catch(e => setError(errorMessage(e))); } }]);
+  const close = async (t: TermInfo) => {
+    if (!await dialog.confirm({ title: `Close ${t.title}?`, message: 'This ends the shell process on the Harness. Anything still running in it stops.', confirm: 'Close Terminal', destructive: true, icon: 'terminal-outline' })) return;
+    try { await client?.call('terminal/close', { agentId: sessionId, id: t.id }); load(); } catch (e) { setError(errorMessage(e)); }
+  };
 
   return <Screen>
     <Header title="Terminal" back><IconButton icon="add" size={20} label="New terminal" onPress={() => void create()} disabled={!client || status !== 'connected'} /></Header>
@@ -44,7 +50,7 @@ export default function Terminal() {
       </Pressable>; })}
     </ScrollView> : null}
     <ErrorNotice message={error} />
-    {terms === null ? <ActivityIndicator style={{ marginTop: 40 }} color={colors.muted} /> : !terms.length ? <View style={{ flex: 1, justifyContent: 'center', gap: 16 }}>
+    {terms === null ? <Loading label="Connecting to terminals…" /> : !terms.length ? <View style={{ flex: 1, justifyContent: 'center', gap: 16 }}>
       <Empty icon="terminal-outline" title="No Terminals" detail="Open a shell in this thread’s workspace. It keeps running on the Harness until you close it." />
       <Pressable accessibilityRole="button" onPress={() => void create()} style={({ pressed }) => ({ alignSelf: 'center', height: 44, paddingHorizontal: 20, borderRadius: 22, flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: colors.text, opacity: pressed ? 0.7 : 1 })}><Ionicons name="add" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>New Terminal</T></Pressable>
     </View> : active ? <TerminalView key={active} sessionId={sessionId} id={active} onState={info => setTerms(ts => ts?.map(t => t.id === info.id ? { ...t, ...info } : t) ?? ts)} /> : null}

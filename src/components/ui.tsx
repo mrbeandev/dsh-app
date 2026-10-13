@@ -1,10 +1,11 @@
 import React from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../state/app';
 import { Glass } from './Glass';
+import { Dots } from './Loader';
 
 /**
  * Apple HIG iOS text styles (Large / default Dynamic Type size).
@@ -88,7 +89,7 @@ export function Button({ title, onPress, loading, disabled, secondary = false, d
   // Prototype style: off-white pill with dark label for the primary action; quiet hairline pill otherwise.
   const primaryFg = colors.bg;
   const label = secondary ? fg : destructive ? '#ffffff' : primaryFg;
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }} disabled={disabled || loading} onPress={onPress} style={({ pressed }) => ({ height: 46, paddingHorizontal: 20, borderRadius: 23, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.fill : destructive ? colors.danger : colors.text, borderWidth: secondary ? StyleSheet.hairlineWidth : 0, borderColor: colors.border, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>{loading ? <ActivityIndicator color={label} /> : <>{icon && <Ionicons name={icon} size={18} color={label} />}<T style="headline" color={label}>{title}</T></>}</Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }} disabled={disabled || loading} onPress={onPress} style={({ pressed }) => ({ height: 46, paddingHorizontal: 20, borderRadius: 23, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.fill : destructive ? colors.danger : colors.text, borderWidth: secondary ? StyleSheet.hairlineWidth : 0, borderColor: colors.border, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>{loading ? <Dots size="sm" color={label} /> : <>{icon && <Ionicons name={icon} size={18} color={label} />}<T style="headline" color={label}>{title}</T></>}</Pressable>;
 }
 
 /** Grouped inset text field with a footnote label above. */

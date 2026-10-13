@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from '../state/app';
 import { ActionMenuProvider } from '../components/ActionMenu';
-import { PromptProvider } from '../components/PromptSheet';
+import { DialogProvider } from '../components/Dialog';
 
 function Navigation() {
   const { colors } = useApp();
@@ -17,4 +17,4 @@ function Navigation() {
     </Stack>
   </>;
 }
-export default function RootLayout() { return <AppProvider><ActionMenuProvider><PromptProvider><Navigation /></PromptProvider></ActionMenuProvider></AppProvider>; }
+export default function RootLayout() { return <AppProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></AppProvider>; }

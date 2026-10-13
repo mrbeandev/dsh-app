@@ -15,12 +15,13 @@
           "NSAllowsArbitraryLoads": true
         },
         "NSLocalNetworkUsageDescription": "Connect to your DeepSeek Harness on your local network."
-      }
+      },
+      "icon": "./assets/icon.png"
     },
     "android": {
       "package": "dev.mrbean.dshapp",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#18191c",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -43,7 +44,19 @@
         }
       ],
       "expo-sqlite",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f4f5f7",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 150,
+          "dark": {
+            "backgroundColor": "#131416",
+            "image": "./assets/splash-icon.png"
+          }
+        }
+      ]
     ]
   }
 }

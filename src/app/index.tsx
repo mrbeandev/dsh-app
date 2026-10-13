@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
+import { SkeletonRows } from '../components/Loader';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,7 +12,7 @@ import { errorMessage } from '../lib/harness';
 import { groupWorkspaces } from '../lib/workspaces';
 import { relativeTime } from '../lib/time';
 import { useActionMenu } from '../components/ActionMenu';
-import { usePrompt } from '../components/PromptSheet';
+import { useDialog } from '../components/Dialog';
 
 type Filter = 'All' | 'Working';
 
@@ -31,16 +32,16 @@ export default function Home() {
   const host = client ? new URL(client.connection.url).host : savedUrl ? new URL(savedUrl).host : '';
   const statusText = !host ? 'Not connected' : live ? host : status === 'connecting' ? `${host} · Connecting…` : `${host} · Offline`;
 
-  const menu = useActionMenu(); const prompt = usePrompt();
+  const menu = useActionMenu(); const dialog = useDialog();
   const act = (fn: () => Promise<unknown>) => { void fn().then(() => refresh()).catch(e => setError(errorMessage(e))); };
-  const confirm = (title: string, message: string, label: string, run: () => void) => Alert.alert(title, message, [{ text: 'Cancel', style: 'cancel' }, { text: label, style: 'destructive', onPress: run }]);
+  const confirm = (title: string, message: string, label: string, run: () => void) => { void dialog.confirm({ title, message, confirm: label, destructive: true }).then(ok => { if (ok) run(); }); };
   /** Workspace actions via the official workspace API (same calls the Web UI sidebar makes). */
   const workspaceMenu = (section: { id: string; title: string; path: string; sessions: { sessionId: string }[] }) => {
     const real = !section.id.startsWith('path:'); const first = section.sessions[0]?.sessionId;
     menu({ title: section.title, subtitle: section.path, actions: [
       ...(first ? [{ label: 'Browse Files', icon: 'folder-open-outline' as const, onPress: () => router.push({ pathname: '/files', params: { sessionId: first, root: section.path } }) }, { label: 'Open Terminal', icon: 'terminal-outline' as const, onPress: () => router.push({ pathname: '/terminal', params: { sessionId: first } }) }] : []),
       { label: 'New Thread Here', icon: 'add-circle-outline', onPress: () => router.push({ pathname: '/new', params: { cwd: section.path } }) },
-      ...(real ? [{ label: 'Rename', icon: 'pencil-outline' as const, onPress: () => prompt({ title: 'Rename Workspace', initial: section.title, confirm: 'Rename', onSubmit: t => act(() => client!.call('workspace/rename', { request: { workspaceId: section.id, title: t } })) }) }] : []),
+      ...(real ? [{ label: 'Rename', icon: 'pencil-outline' as const, onPress: () => { void dialog.prompt({ title: 'Rename Workspace', initial: section.title, placeholder: 'Workspace name', confirm: 'Rename' }).then(t => { if (t) act(() => client!.call('workspace/rename', { request: { workspaceId: section.id, title: t } })); }); } }] : []),
       { label: 'Refresh Cache', icon: 'refresh-outline', detail: 'Chats download again only when opened', onPress: () => { void refreshWorkspace(section.sessions.map(x => x.sessionId)).catch(e => setError(errorMessage(e))); } },
       ...(real ? [{ label: 'Remove Workspace', icon: 'trash-outline' as const, destructive: true, detail: 'Removes it from the list; files stay on disk', onPress: () => confirm(`Remove ${section.title}?`, 'The folder and its files stay on the Harness. Only the workspace entry is removed.', 'Remove', () => act(() => client!.call('workspace/delete', { request: { workspaceId: section.id } }))) }] : []),
     ] });
@@ -57,7 +58,7 @@ export default function Home() {
 
   return <Screen edges={['top']}>
     <GlassTarget target={target}>
-      {loading ? <ActivityIndicator style={{ marginTop: 160 }} color={colors.muted} /> : <SectionList
+      {loading ? <View style={{ paddingTop: 70 }}><SkeletonRows rows={10} /></View> : <SectionList
         sections={sections}
         stickySectionHeadersEnabled={false}
         keyExtractor={x => x.sessionId}
