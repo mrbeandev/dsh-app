@@ -73,9 +73,10 @@ export default function Details() {
 
     <Section header="Thread">
       <Row icon="sparkles-outline" title="Model" value={model || 'Default'} subtitle={provider || undefined} onPress={client ? () => setPicker(true) : undefined} />
+      {model ? <Row icon="pricetag-outline" title="Model ID" subtitle={provider ? `${provider} / ${model}` : model} chevron={false} copy={provider ? `${provider}/${model}` : model} /> : null}
       {values.agentPreset ? <Row icon="person-circle-outline" title="Persona" value={titleCase(String(values.agentPreset))} chevron={false} /> : null}
       {values.permissions?.currentValue ? <Row icon="shield-checkmark-outline" title="Access" value={titleCase(String(values.permissions.currentValue))} chevron={false} /> : null}
-      {session?.cwd ? <Row icon="folder-outline" title="Directory" subtitle={session.cwd} chevron={false} /> : null}
+      {session?.cwd ? <Row icon="folder-outline" title="Directory" subtitle={session.cwd} chevron={false} copy={session.cwd} /> : null}
     </Section>
 
     <Section header="Context" footer="How full the model's context window is, and what fills it.">
@@ -119,8 +120,8 @@ export default function Details() {
       </View>
     </Section>
 
-    {todos.length || pendingQuestions || inboxCount || values.goal || values.plan?.active ? <Section header="Activity">
-      {values.goal ? <Row icon="flag-outline" title="Goal" subtitle={String(values.goal.objective ?? values.goal.title ?? 'Active goal')} chevron={false} /> : null}
+    {todos.length || pendingQuestions || inboxCount || values.goal?.goal || values.plan?.active ? <Section header="Activity">
+      {values.goal?.goal ? <Row icon="flag-outline" title={`Goal · ${titleCase(String(values.goal.goal.phase ?? ''))}`} subtitle={String(values.goal.goal.objective ?? '')} chevron={false} copy={String(values.goal.goal.objective ?? '')} /> : null}
       {values.plan?.active ? <Row icon="map-outline" title="Plan mode" value={values.plan.pending ? 'Awaiting approval' : 'On'} chevron={false} /> : null}
       {pendingQuestions ? <Row icon="help-circle-outline" title="Open questions" value={String(pendingQuestions)} chevron={false} /> : null}
       {inboxCount ? <Row icon="mail-unread-outline" title="Queued messages" value={String(inboxCount)} chevron={false} /> : null}
@@ -133,7 +134,8 @@ export default function Details() {
         {journal.counts.map(c => <Row key={c.label} title={c.label} value={grouped(c.count)} chevron={false} />)}
         <Row icon="archive-outline" title="Cache size" value={`~${compact(journal.bytes)}B`} subtitle={journal.savedAt ? `Saved ${relativeTime(journal.savedAt)} ago` : undefined} chevron={false} />
       </> : <Row icon="albums-outline" title="Cached events" value="None yet" subtitle="Open the thread to cache it on this device." chevron={false} />}
-      <Row icon="finger-print-outline" title="Thread ID" subtitle={id} chevron={false} />
+      <Row icon="finger-print-outline" title="Thread ID" subtitle={id} chevron={false} copy={id} />
+      {client ? <Row icon="link-outline" title="Harness" subtitle={client.connection.url} chevron={false} copy={client.connection.url} /> : null}
     </Section>
     <ErrorNotice message={error} />
   </ScrollView><ModelPicker sessionId={id} visible={picker} onClose={() => setPicker(false)} onSelected={() => {}} current={model} /></Screen>;

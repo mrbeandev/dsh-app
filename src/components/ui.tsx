@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../state/app';
 import { Glass } from './Glass';
 import { Dots } from './Loader';
+import { CopyButton } from './CopyButton';
 
 /**
  * Apple HIG iOS text styles (Large / default Dynamic Type size).
@@ -116,7 +117,7 @@ export function Section({ header, footer, children }: { header?: string; footer?
 }
 
 /** 44 pt list row with optional leading icon, value, and disclosure chevron. */
-export function Row({ title, subtitle, value, icon, iconTint, onPress, chevron = !!onPress, destructive, accessory, selected }: { title: string; subtitle?: string; value?: string; icon?: IconName; iconTint?: string; onPress?: () => void; chevron?: boolean; destructive?: boolean; accessory?: React.ReactNode; selected?: boolean }) {
+export function Row({ title, subtitle, value, icon, iconTint, onPress, chevron = !!onPress, destructive, accessory, selected, copy }: { title: string; subtitle?: string; value?: string; icon?: IconName; iconTint?: string; onPress?: () => void; chevron?: boolean; destructive?: boolean; accessory?: React.ReactNode; selected?: boolean; /** Adds an inline copy button for this text. */ copy?: string }) {
   const { colors } = useApp();
   // Slim row: 44 pt minimum target, compact 14/12 pt text (matches the approved prototype density).
   return <Pressable accessibilityRole={onPress ? 'button' : undefined} accessibilityState={selected !== undefined ? { selected } : undefined} disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 14, paddingVertical: subtitle ? 7 : 10, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
@@ -124,6 +125,7 @@ export function Row({ title, subtitle, value, icon, iconTint, onPress, chevron =
     <View style={{ flex: 1 }}><T style="footnote" weight="500" color={destructive ? 'danger' : 'primary'} numberOfLines={1} styleOverride={{ fontSize: 14 }}>{title}</T>{subtitle ? <T style="caption1" color="secondary" numberOfLines={2}>{subtitle}</T> : null}</View>
     {value ? <T style="caption1" color="secondary" numberOfLines={1}>{value}</T> : null}
     {accessory}
+    {copy ? <CopyButton value={copy} label={`Copy ${title}`} /> : null}
     {selected ? <Ionicons name="checkmark" size={17} color={colors.primary} /> : null}
     {chevron ? <Ionicons name="chevron-forward" size={14} color={colors.tertiary} /> : null}
   </Pressable>;

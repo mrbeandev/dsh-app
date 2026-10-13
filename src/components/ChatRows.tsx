@@ -73,7 +73,30 @@ export const ChatRow = memo(function ChatRow({ row, onUserAction }: { row: Trans
       return <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 2 }}><View style={{ width: 7, height: 7, borderRadius: 4, marginTop: 6, backgroundColor: row.warning ? '#ffb74d' : colors.danger }} /><View style={{ flex: 1 }}><T style="footnote" color={row.warning ? 'secondary' : 'danger'} selectable>{row.text}</T></View></View>;
     case 'notice':
       return <View style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, flexDirection: 'row', gap: 6, alignItems: 'center' }}><Ionicons name="code-slash-outline" size={13} color={colors.muted} /><T style="footnote" color="secondary">{row.label}</T>{row.text ? <T style="caption1" color="tertiary" numberOfLines={1}>{row.text}</T> : null}</View>;
+    case 'turn':
+      return <TurnFold row={row} />;
     default:
       return <ProcessRow icon="ellipse-outline" title={row.label}><Mono text={row.text} /></ProcessRow>;
   }
 });
+
+/** "Completed in 4m 5s ⌄" — the finished turn's process rows, collapsed (Web UI parity). */
+function TurnFold({ row }: { row: Extract<TranscriptRow, { kind: 'turn' }> }) {
+  const { colors } = useApp(); const [open, setOpen] = useState(false);
+  const verb = row.outcome === 'completed' ? 'Completed' : row.outcome === 'failed' ? 'Failed' : 'Stopped';
+  const detail = [row.tools ? `${row.tools} tool call${row.tools === 1 ? '' : 's'}` : '', row.steps > 1 ? `${row.steps} steps` : ''].filter(Boolean).join(' · ');
+  return <View style={{ gap: 6 }}>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${verb} in ${fmtDuration(row.durationMs)}${detail ? `, ${detail}` : ''}. ${open ? 'Hide' : 'Show'} steps`} onPress={() => setOpen(o => !o)} hitSlop={{ top: 6, bottom: 6 }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 2, opacity: pressed ? 0.6 : 1 })}>
+      <T style="caption1" color={row.outcome === 'failed' ? colors.danger : 'secondary'} styleOverride={{ fontSize: 12.5 }}>{`${verb} in ${fmtDuration(row.durationMs)}`}</T>
+      {detail ? <T style="caption1" color="tertiary" styleOverride={{ fontSize: 12.5 }}>{`· ${detail}`}</T> : null}
+      <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={12} color={colors.tertiary} />
+    </Pressable>
+    {open ? <View style={{ gap: 6, paddingLeft: 10, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.border }}>{row.rows.map(r => <ChatRow key={r.id} row={r} />)}</View> : <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginBottom: 2 }} />}
+  </View>;
+}
+function fmtDuration(ms: number) {
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${Math.max(1, sec)}s`;
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}h ${m}m` : `${m}m ${s}s`;
+}

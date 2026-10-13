@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Glass, GlassTarget, GlassTargetProvider } from '../../components/Glass';
 import { Dots, SkeletonChat } from '../../components/Loader';
 import { useActionMenu } from '../../components/ActionMenu';
+import { ComposerContext } from '../../components/ComposerContext';
 import { useDialog } from '../../components/Dialog';
 import { rewindTo, setPendingDraft, takePendingDraft } from '../../lib/rewind';
 import * as Clipboard from 'expo-clipboard';
@@ -17,7 +18,7 @@ import { ChatComposer } from '../../components/ChatComposer';
 import { MessageMarkdown } from '../../components/MessageMarkdown';
 import { PendingRequest } from '../../components/PendingRequest';
 import { errorMessage } from '../../lib/harness';
-import { Frame, buildTranscript, sessionTitle, WireEvent } from '../../lib/protocol';
+import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
 import { expandStream, streamText } from '../../lib/stream';
 export default function Thread() {
   const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status } = useApp();
@@ -71,7 +72,7 @@ export default function Thread() {
     });
     return () => { active = false; stop(); clearTimeout(saveTimer); if (receivedLive) void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); };
   }, [client, id, harnessUrl, refresh]));
-  const rows = useMemo(() => buildTranscript(records), [records]);
+  const rows = useMemo(() => foldTurns(records, buildTranscript(records)), [records]);
   // Scroll ownership (like the DSH web chat): follow the tail unless the reader has scrolled away.
   // Sending a message or any new agent activity re-pins to the very bottom.
   const scrollToBottom = useCallback((animated = true) => {
@@ -134,6 +135,7 @@ export default function Thread() {
       </GlassTarget>
       <ErrorNotice message={error} />
       <GlassTargetProvider value={target}>
+        <ComposerContext sessionId={id} values={(session?.projections?.values as Record<string, any>) ?? {}} />
         <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={() => void send()} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }} />
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>

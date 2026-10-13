@@ -51,7 +51,9 @@ export type TranscriptRow =
   | { id: string; kind: 'system'; text: string }
   | { id: string; kind: 'failure'; text: string; warning?: boolean }
   | { id: string; kind: 'notice'; label: string; text?: string }
-  | { id: string; kind: 'event'; label: string; text: string };
+  | { id: string; kind: 'event'; label: string; text: string }
+  /** A finished turn's process (tools, reasoning, interim replies) folded into one 'Completed in …' marker. */
+  | { id: string; kind: 'turn'; durationMs: number; steps: number; tools: number; rows: TranscriptRow[]; outcome: 'completed' | 'interrupted' | 'failed' };
 export type ContextIcon = 'time' | 'goal' | 'skill' | 'plan' | 'schedule' | 'hook' | 'tools' | 'answer' | 'subagent' | 'webhook' | 'info';
 
 /** Event types that carry no user-visible content (the web chat hides them too). */
@@ -241,4 +243,49 @@ export function toolTitle(name: string, args: string): { verb: string; target: s
   if (/skill/.test(n)) return { verb: 'Used skill', target: String(a.name ?? '') };
   if (/goal/.test(n)) return { verb: 'Updated goal', target: '' };
   return { verb: name.replace(/^mcp__\w+__/, '').replace(/[_-]/g, ' '), target: '' };
+}
+
+/** Row kinds that are "process" — hidden behind the marker once a turn has finished. */
+const PROCESS = new Set<TranscriptRow['kind']>(['tool', 'context', 'compaction', 'event', 'notice']);
+
+/**
+ * Web-UI style turn folding: once a turn ends, everything between your prompt and the agent's final
+ * reply (tool calls, reasoning, interim assistant text, context rows) collapses into one
+ * "Completed in 4m 5s" marker that expands on tap. The running turn and failures stay visible.
+ */
+export function foldTurns(events: readonly WireEvent[], rows: TranscriptRow[]): TranscriptRow[] {
+  const turns: { start: number; end?: number; startTime: number; endTime?: number; outcome: 'completed' | 'interrupted' | 'failed'; steps: number }[] = [];
+  for (const e of events) {
+    if (e.type === 'turn/start') turns.push({ start: e.seq, startTime: e.time, outcome: 'completed', steps: 0 });
+    const t = turns[turns.length - 1];
+    if (!t || t.end !== undefined) continue;
+    if (e.type === 'step/start') t.steps++;
+    if (e.type === 'turn/end') {
+      const kind = String((e.data as any)?.reason?.kind ?? 'completed');
+      t.end = e.seq; t.endTime = e.time; t.outcome = kind === 'completed' ? 'completed' : kind === 'error' ? 'failed' : 'interrupted';
+    }
+  }
+  if (!turns.length) return rows;
+  const turnOf = (seq: number) => { for (let i = turns.length - 1; i >= 0; i--) if (seq >= turns[i].start) return turns[i].end === undefined || seq <= turns[i].end! ? i : -1; return -1; };
+  const out: TranscriptRow[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const row = rows[i]; const ti = turnOf(Number(row.id));
+    const t = ti >= 0 ? turns[ti] : undefined;
+    if (!t || t.end === undefined || row.kind === 'user') { out.push(row); i++; continue; }
+    // Gather this finished turn's rows (stop at the next user message or another turn).
+    const group: TranscriptRow[] = [];
+    while (i < rows.length && rows[i].kind !== 'user' && turnOf(Number(rows[i].id)) === ti) group.push(rows[i++]);
+    // Keep the final assistant reply (and anything after it, e.g. a failure) visible; fold the rest.
+    let last = -1; for (let k = group.length - 1; k >= 0; k--) if (group[k].kind === 'assistant' && (group[k] as any).text) { last = k; break; }
+    const hidden = group.slice(0, last >= 0 ? last : group.length).filter(r => PROCESS.has(r.kind) || r.kind === 'assistant');
+    const shown = last >= 0 ? group.slice(last) : group.filter(r => !PROCESS.has(r.kind) && r.kind !== 'assistant');
+    const finalRow = last >= 0 ? group[last] as Extract<TranscriptRow, { kind: 'assistant' }> : undefined;
+    // The final reply's own reasoning belongs to the process too.
+    if (finalRow?.reasoning) { hidden.push({ id: `${finalRow.id}:r`, kind: 'assistant', text: '', reasoning: finalRow.reasoning }); shown[0] = { ...finalRow, reasoning: undefined }; }
+    const tools = hidden.filter(r => r.kind === 'tool').length;
+    if (hidden.length) out.push({ id: `turn:${t.start}`, kind: 'turn', durationMs: Math.max(0, (t.endTime ?? t.startTime) - t.startTime), steps: t.steps, tools, rows: hidden, outcome: t.outcome });
+    out.push(...shown);
+  }
+  return out;
 }

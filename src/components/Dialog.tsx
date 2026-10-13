@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../state/app';
 import { T, type } from './ui';
@@ -13,7 +13,7 @@ export type DialogSpec = {
   tone?: 'default' | 'danger' | 'warning' | 'success';
   buttons?: DialogButton[];
   /** Adds a text field; its value is returned as `text`. */
-  input?: { initial?: string; placeholder?: string; secure?: boolean; required?: boolean };
+  input?: { initial?: string; placeholder?: string; secure?: boolean; required?: boolean; /** Multi-line text area that grows up to half the screen height. */ multiline?: boolean };
 };
 export type DialogResult = { button: string; value?: string; text: string };
 
@@ -24,7 +24,7 @@ type Api = {
   /** Single-button notice. */
   alert: (title: string, message?: string, tone?: DialogSpec['tone']) => Promise<void>;
   /** Text prompt. Resolves the trimmed text, or null when cancelled. */
-  prompt: (o: { title: string; message?: string; initial?: string; placeholder?: string; confirm?: string }) => Promise<string | null>;
+  prompt: (o: { title: string; message?: string; initial?: string; placeholder?: string; confirm?: string; multiline?: boolean }) => Promise<string | null>;
 };
 const Ctx = createContext<Api | null>(null);
 
@@ -40,7 +40,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     show,
     confirm: async o => (await show({ title: o.title, message: o.message, icon: o.icon ?? (o.destructive ? 'warning-outline' : undefined), tone: o.destructive ? 'danger' : 'default', buttons: [{ label: o.cancel ?? 'Cancel', style: 'cancel' }, { label: o.confirm ?? 'OK', style: o.destructive ? 'destructive' : 'primary', value: 'ok' }] })).value === 'ok',
     alert: async (title, message, tone = 'default') => { await show({ title, message, tone, icon: tone === 'danger' ? 'alert-circle-outline' : tone === 'success' ? 'checkmark-circle-outline' : tone === 'warning' ? 'warning-outline' : undefined, buttons: [{ label: 'OK', style: 'primary', value: 'ok' }] }); },
-    prompt: async o => { const r = await show({ title: o.title, message: o.message, input: { initial: o.initial, placeholder: o.placeholder, required: true }, buttons: [{ label: 'Cancel', style: 'cancel' }, { label: o.confirm ?? 'OK', style: 'primary', value: 'ok' }] }); return r.value === 'ok' ? r.text.trim() : null; },
+    prompt: async o => { const r = await show({ title: o.title, message: o.message, input: { initial: o.initial, placeholder: o.placeholder, required: true, multiline: o.multiline }, buttons: [{ label: 'Cancel', style: 'cancel' }, { label: o.confirm ?? 'OK', style: 'primary', value: 'ok' }] }); return r.value === 'ok' ? r.text.trim() : null; },
   }), [show]);
   const current = queue[0];
   const done = (r: DialogResult) => { current?.resolve(r); setQueue(q => q.slice(1)); };
@@ -53,7 +53,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
 export function useDialog() { const v = useContext(Ctx); if (!v) throw new Error('DialogProvider missing'); return v; }
 
 function DialogView({ spec, onDone }: { spec: DialogSpec; onDone: (r: DialogResult) => void }) {
-  const { colors } = useApp();
+  const { colors } = useApp(); const { height } = useWindowDimensions();
   const buttons = useMemo<DialogButton[]>(() => (spec.buttons?.length ? spec.buttons : [{ label: 'OK', style: 'primary', value: 'ok' }]), [spec.buttons]);
   const cancel = buttons.find(b => b.style === 'cancel');
   const [text, setText] = useState(spec.input?.initial ?? '');
@@ -94,13 +94,14 @@ function DialogView({ spec, onDone }: { spec: DialogSpec; onDone: (r: DialogResu
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <Animated.View style={{ flex: 1, backgroundColor: '#00000080', opacity: anim, alignItems: 'center', justifyContent: 'center', padding: 28 }}>
         <Pressable accessibilityLabel="Dismiss" style={StyleSheet.absoluteFill} onPress={cancel ? () => finish(cancel) : undefined} />
-        <Animated.View accessibilityViewIsModal accessibilityRole="alert" style={{ width: '100%', maxWidth: 340, transform: [{ scale }], borderRadius: 24, padding: 18, gap: 14, backgroundColor: colors.dark ? '#242426' : '#fbfcfd', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge, boxShadow: '0 16px 40px #00000066' }}>
+        <Animated.View accessibilityViewIsModal accessibilityRole="alert" style={{ width: '100%', maxWidth: spec.input?.multiline ? 520 : 340, transform: [{ scale }], borderRadius: 24, padding: 18, gap: 14, backgroundColor: colors.dark ? '#242426' : '#fbfcfd', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge, boxShadow: '0 16px 40px #00000066' }}>
           <View style={{ alignItems: 'center', gap: 8 }}>
             {spec.icon ? <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: `${toneColor}22` }}><Ionicons name={spec.icon} size={22} color={toneColor} /></View> : null}
             <T style="headline" align="center" styleOverride={{ fontSize: 16 }}>{spec.title}</T>
             {spec.message ? <T style="footnote" color="secondary" align="center" selectable>{spec.message}</T> : null}
           </View>
-          {spec.input ? <TextInput autoFocus value={text} onChangeText={setText} secureTextEntry={spec.input.secure} selectTextOnFocus placeholder={spec.input.placeholder} placeholderTextColor={colors.tertiary} returnKeyType="done" onSubmitEditing={() => { const p = buttons.find(b => b.style === 'primary'); if (p && !blocked(p)) finish(p); }} style={[type.subhead, { fontSize: 14, height: 42, borderRadius: 12, paddingHorizontal: 14, color: colors.text, backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]} /> : null}
+          {spec.input?.multiline ? <TextInput autoFocus multiline scrollEnabled textAlignVertical="top" value={text} onChangeText={setText} placeholder={spec.input.placeholder} placeholderTextColor={colors.tertiary} style={[type.subhead, { fontSize: 14, lineHeight: 20, minHeight: 104, maxHeight: Math.round(height * 0.5), borderRadius: 12, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, color: colors.text, backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]} />
+            : spec.input ? <TextInput autoFocus value={text} onChangeText={setText} secureTextEntry={spec.input.secure} selectTextOnFocus placeholder={spec.input.placeholder} placeholderTextColor={colors.tertiary} returnKeyType="done" onSubmitEditing={() => { const p = buttons.find(b => b.style === 'primary'); if (p && !blocked(p)) finish(p); }} style={[type.subhead, { fontSize: 14, height: 42, borderRadius: 12, paddingHorizontal: 14, color: colors.text, backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]} /> : null}
           <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8 }}>{(stacked ? [...buttons.filter(b => b.style !== 'cancel'), ...buttons.filter(b => b.style === 'cancel')] : buttons).map(btn)}</View>
         </Animated.View>
       </Animated.View>
