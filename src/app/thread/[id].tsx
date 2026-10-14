@@ -22,6 +22,7 @@ import { PromptIndex } from '../../components/PromptIndex';
 import { outlineOf, seedTimes, type OutlineEntry } from '../../lib/promptIndex';
 import { usePinch } from '../../lib/usePinch';
 import { historyAddress, stableAddress, subagentLabel } from '../../lib/subagents';
+import { useNotifications } from '../../state/notifications';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
@@ -38,6 +39,8 @@ export default function Thread() {
   const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
   const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
   const session = sessions.find(x => x.sessionId === id);
+  const notify = useNotifications();
+  useEffect(() => { notify.setViewing(id); return () => notify.setViewing(undefined); }, [notify, id]);
   // Subagent threads need the subagent address form; a plain session address is refused for them.
   const parentSession = session?.parentSessionId ? sessions.find(x => x.sessionId === session.parentSessionId) : undefined;
   // Derived subagent info, computed inside one memo so the compiler knows `session` isn't mutated.
@@ -218,7 +221,7 @@ export default function Thread() {
       <ErrorNotice message={error} />
       <GlassTargetProvider value={target}>
         <ComposerContext sessionId={id} values={(session?.projections?.values as Record<string, any>) ?? {}} />
-        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={() => void send()} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }}  />}
+        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={() => void send()} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { notify.markStoppedByMe(id); void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }}  />}
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>

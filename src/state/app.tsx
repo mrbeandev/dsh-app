@@ -12,11 +12,14 @@ type ThemeMode = 'system' | 'light' | 'dark';
 const light = { dark: false, bg: '#edf1f5', card: '#ffffff', grouped: '#ffffff8a', text: '#202936', muted: '#586677', tertiary: '#58667799', border: '#29426026', separator: '#29426026', primary: '#1c65b9', bubble: '#ffffff8a', danger: '#c62828', success: '#2e7d32', live: '#1c65b9', glass: '#fafbfcf2', glassEdge: '#fffffff2', fill: '#2942601a' };
 const dark = { dark: true, bg: '#0e0f11', card: '#1c1c1f', grouped: '#2e2e3175', text: '#edf0f6', muted: '#aeb6c5', tertiary: '#aeb6c580', border: '#d3dff426', separator: '#d3dff426', primary: '#89baff', bubble: '#2e2e3175', danger: '#ff8a80', success: '#81c995', live: '#89baff', glass: '#2c2c2ef0', glassEdge: '#e0ebff29', fill: '#2e2e3175' };
 export type Colors = typeof light;
-type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
+type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
 const credentials = { read: async () => Platform.OS === 'web' ? null : SecureStore.getItemAsync('dsh.connection'), save: async (c: Connection) => { if (Platform.OS !== 'web') await SecureStore.setItemAsync('dsh.connection', JSON.stringify(c)); }, clear: async () => { if (Platform.OS !== 'web') await SecureStore.deleteItemAsync('dsh.connection'); } };
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [client, setClient] = useState<HarnessClient | null>(null); const current = useRef<HarnessClient | null>(null);
+  // Live running/idle transitions straight from the Harness event, before any list refresh can hide them.
+  const statusListeners = useRef(new Set<(id: string, running: boolean) => void>());
+  const onSessionStatus = useCallback((fn: (id: string, running: boolean) => void) => { statusListeners.current.add(fn); return () => { statusListeners.current.delete(fn); }; }, []);
   const [sessions, setSessions] = useState<Session[]>([]); const [workspaces, setWorkspaces] = useState<Frame[]>([]);
   const [archived, setArchived] = useState<string[]>([]); const [pinned, setPinned] = useState<string[]>([]);
   const [status, setStatus] = useState('disconnected'); const [savedUrl, setSavedUrl] = useState(''); const [loading, setLoading] = useState(true);
@@ -51,7 +54,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (frame.type === 'waterfall') setPending(p => [...p.filter(x => x.eventId !== frame.eventId), { ...frame, clientId: next.clientId }]);
       if (frame.type === 'cancel') setPending(p => p.filter(x => x.eventId !== frame.eventId));
       if (frame.type === 'emit' && frame.event === 'api-session/status') {
-        const [id, running] = frame.args; catalog.current.sessions = catalog.current.sessions.map(s => s.sessionId === id ? { ...s, running: !!running } : s); setSessions(catalog.current.sessions); scheduleRefresh();
+        const [id, running] = frame.args; for (const fn of statusListeners.current) { try { fn(String(id), !!running); } catch { /* listener errors never break the stream */ } }
+        catalog.current.sessions = catalog.current.sessions.map(s => s.sessionId === id ? { ...s, running: !!running } : s); setSessions(catalog.current.sessions); scheduleRefresh();
       } else if (frame.type === 'emit' && /session|workspace/.test(frame.event)) scheduleRefresh();
     });
     next.follow('session/control', {}, frame => {
@@ -79,6 +83,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (active && cached) { catalog.current = { sessions: cached.sessions.map(s => ({ ...s, running: false })), workspaces: cached.workspaces }; setSessions(catalog.current.sessions); setWorkspaces(cached.workspaces); setLoading(false); setStatus('cached'); }
     if (active) await connect(c);
   }).catch(() => setStatus('offline')).finally(() => { if (active) setLoading(false); }); return () => { active = false; current.current?.disconnect(); }; }, [connect]);
-  return <Context.Provider value={{ client, sessions, workspaces, archived, pinned, status, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ onSessionStatus, client, sessions, workspaces, archived, pinned, status, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
 }
 export function useApp() { const value = useContext(Context); if (!value) throw new Error('AppProvider missing'); return value; }

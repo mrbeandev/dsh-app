@@ -5,6 +5,7 @@ import { AppProvider, useApp } from '../state/app';
 import { ActionMenuProvider } from '../components/ActionMenu';
 import { DialogProvider } from '../components/Dialog';
 import { UpdateProvider } from '../state/updates';
+import { NotificationProvider } from '../state/notifications';
 
 function Navigation() {
   const { colors } = useApp();
@@ -19,4 +20,4 @@ function Navigation() {
     </Stack>
   </>;
 }
-export default function RootLayout() { return <GestureHandlerRootView style={{ flex: 1 }}><AppProvider><UpdateProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></UpdateProvider></AppProvider></GestureHandlerRootView>; }
+export default function RootLayout() { return <GestureHandlerRootView style={{ flex: 1 }}><AppProvider><UpdateProvider><NotificationProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></NotificationProvider></UpdateProvider></AppProvider></GestureHandlerRootView>; }
