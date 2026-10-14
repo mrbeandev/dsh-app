@@ -21,6 +21,7 @@ import { PlanReview, planReviewOf } from '../../components/PlanReview';
 import { PromptIndex } from '../../components/PromptIndex';
 import { outlineOf, seedTimes, type OutlineEntry } from '../../lib/promptIndex';
 import { usePinch } from '../../lib/usePinch';
+import { historyAddress } from '../../lib/subagents';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
@@ -37,6 +38,12 @@ export default function Thread() {
   const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
   const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
   const session = sessions.find(x => x.sessionId === id);
+  // Subagent threads need the subagent address form; a plain session address is refused for them.
+  const parentSession = session?.parentSessionId ? sessions.find(x => x.sessionId === session.parentSessionId) : undefined;
+  const addressKey = JSON.stringify(historyAddress(session, id, parentSession));
+  const address = useMemo(() => JSON.parse(addressKey) as ReturnType<typeof historyAddress>, [addressKey]);
+  const isSubagent = session?.origin === 'subagent';
+  const readOnly = isSubagent && address.kind === 'subagent' && address.mode === 'one-shot';
   const [fade] = useState(() => new Animated.Value(0));
   const shown = useRef(false);
   useFocusEffect(useCallback(() => {
@@ -47,7 +54,7 @@ export default function Thread() {
     void readHistory(harnessUrl, id).then(cached => { if (active && !receivedLive && cached) { history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
     liveChunks.current.clear();
     if (!client || client.connection.url !== harnessUrl) return () => { active = false; };
-    const stop = client.follow('session/follow', { request: { address: { kind: 'session', sessionId: id }, maxMessages: 24, assistantStream: true } }, frame => {
+    const stop = client.follow('session/follow', { request: { address, maxMessages: 24, assistantStream: true } }, frame => {
       if (frame.type === 'stream-error') { setError(frame.error.message); return; }
       if (frame.type === 'snapshot') {
         receivedLive = true; setHistoryState('live');
@@ -78,7 +85,7 @@ export default function Thread() {
       }
     });
     return () => { active = false; stop(); clearTimeout(saveTimer); if (receivedLive) void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); };
-  }, [client, id, harnessUrl, refresh]));
+  }, [client, id, harnessUrl, refresh, address]));
   const rows = useMemo(() => foldTurns(records, buildTranscript(records)), [records]);
   // Inverted list: index 0 renders at the bottom, so the chat opens on the latest message with no scroll jump.
   const data = useMemo(() => [...rows].reverse(), [rows]);
@@ -127,7 +134,7 @@ export default function Thread() {
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
   const loadingOlder = useRef(false); const [olderBusy, setOlderBusy] = useState(false);
-  const older = async () => { if (!client || !records.length || loadingOlder.current) return; loadingOlder.current = true; setOlderBusy(true); try { const page = await client.request('session/page', { address: { kind: 'session', sessionId: id }, throughSeq: cursor, beforeSeq: records[0].seq, maxMessages: 30 }); const merged = new Map(history.current.records.map(e => [e.seq, e])); for (const r of page.records) if (r.type === 'event') merged.set(r.event.seq, r.event); history.current = { ...history.current, records: [...merged.values()].sort((a, b) => a.seq - b.seq), hasMore: page.hasMore, savedAt: Date.now() }; setRecords(history.current.records); setHasMore(page.hasMore); await writeHistory(harnessUrl, id, history.current); } catch (e) { setError(errorMessage(e)); } finally { loadingOlder.current = false; setOlderBusy(false); } };
+  const older = async () => { if (!client || !records.length || loadingOlder.current) return; loadingOlder.current = true; setOlderBusy(true); try { const page = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: records[0].seq, maxMessages: 30 }); const merged = new Map(history.current.records.map(e => [e.seq, e])); for (const r of page.records) if (r.type === 'event') merged.set(r.event.seq, r.event); history.current = { ...history.current, records: [...merged.values()].sort((a, b) => a.seq - b.seq), hasMore: page.hasMore, savedAt: Date.now() }; setRecords(history.current.records); setHasMore(page.hasMore); await writeHistory(harnessUrl, id, history.current); } catch (e) { setError(errorMessage(e)); } finally { loadingOlder.current = false; setOlderBusy(false); } };
   // Pinch-to-browse prompts (turnOutline) and jump-to-turn.
   const [promptsOpen, setPromptsOpen] = useState(false); const [pendingJump, setPendingJump] = useState<number | null>(null);
   const [highlight, setHighlight] = useState('');
@@ -141,13 +148,13 @@ export default function Thread() {
     // Load history back through the turn's turn/start seq if it is not in memory yet.
     if (client && records.length && records[0].seq > entry.seq) {
       try {
-        const page = await client.request('session/page', { address: { kind: 'session', sessionId: id }, throughSeq: cursor, beforeSeq: records[0].seq, maxMessages: 200, turnWindow: undefined });
+        const page = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: records[0].seq, maxMessages: 200, turnWindow: undefined });
         const merged = new Map(history.current.records.map(e => [e.seq, e]));
         for (const r of page.records) if (r.type === 'event') merged.set(r.event.seq, r.event);
         // Page further back until the turn is covered (bounded).
         let hasOlder = page.hasMore; let guard = 0;
         while (hasOlder && Math.min(...merged.keys()) > entry.seq && guard++ < 20) {
-          const next = await client.request('session/page', { address: { kind: 'session', sessionId: id }, throughSeq: cursor, beforeSeq: Math.min(...merged.keys()), maxMessages: 200 });
+          const next = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: Math.min(...merged.keys()), maxMessages: 200 });
           for (const r of next.records) if (r.type === 'event') merged.set(r.event.seq, r.event);
           hasOlder = next.hasMore;
         }
@@ -157,7 +164,7 @@ export default function Thread() {
       } catch (e) { setError(errorMessage(e)); return; }
     }
     setPendingJump(entry.seq);
-  }, [client, records, id, cursor, harnessUrl]);
+  }, [client, records, id, cursor, harnessUrl, address]);
   useEffect(() => {
     if (pendingJump === null) return;
     // The turn's prompt row: the oldest user row at/after the turn/start seq (data is newest-first).
@@ -207,11 +214,12 @@ export default function Thread() {
       <ErrorNotice message={error} />
       <GlassTargetProvider value={target}>
         <ComposerContext sessionId={id} values={(session?.projections?.values as Record<string, any>) ?? {}} />
-        <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={() => void send()} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }} />
+        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={() => void send()} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }}  />}
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
           <Header title={session ? sessionTitle(session) : 'Thread'} subtitle={subtitle || undefined} back>
+            {isSubagent && session?.parentSessionId ? <IconButton icon="git-branch-outline" size={18} label="Open parent thread" onPress={() => router.push({ pathname: '/thread/[id]', params: { id: session.parentSessionId!, harness: harnessUrl } })} /> : null}
             {outline.length ? <IconButton icon="list-outline" size={18} label="Prompts" onPress={() => setPromptsOpen(true)} /> : null}
             <IconButton icon="folder-open-outline" size={18} label="Files" onPress={() => router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd } })} />
             <IconButton icon="terminal-outline" size={18} label="Terminal" onPress={() => router.push({ pathname: '/terminal', params: { sessionId: id } })} />

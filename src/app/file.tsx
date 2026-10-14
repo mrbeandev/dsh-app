@@ -40,9 +40,10 @@ export default function FileScreen() {
   const [error, setError] = useState(''); const [loadPct, setLoadPct] = useState(0);
   const [download, setDownload] = useState<number | null>(null); const [dlError, setDlError] = useState(''); const [saved, setSaved] = useState<SavedFile | null>(null);
   const [absolute, setAbsolute] = useState('');
-  // Line wrap preference for text files (remembered).
-  const [wrap, setWrap] = useState(true);
-  useEffect(() => { void SecureStore.getItemAsync(WRAP_KEY).then(v => { if (v === '0') setWrap(false); }).catch(() => {}); }, []);
+  // Line wrap preference for text files.
+  // Default: no wrapping (code reads best unwrapped); the toggle is remembered once used.
+  const [wrap, setWrap] = useState(false);
+  useEffect(() => { void SecureStore.getItemAsync(WRAP_KEY).then(v => { if (v === '1') setWrap(true); }).catch(() => {}); }, []);
   const toggleWrap = () => setWrap(w => { void SecureStore.setItemAsync(WRAP_KEY, w ? '0' : '1').catch(() => {}); return !w; });
 
   useEffect(() => {

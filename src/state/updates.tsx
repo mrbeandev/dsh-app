@@ -41,17 +41,25 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     return () => { clearTimeout(t); sub.remove(); };
   }, [check]);
 
+  // Start the download from the current state (never inside a state updater: React may run updaters
+  // twice, which started two downloads and let the stale one's progress be ignored).
+  const latest = useRef(state);
+  useEffect(() => { latest.current = state; }, [state]);
   const download = useCallback(() => {
-    setState(s => {
-      if (s.kind !== 'available' && s.kind !== 'error') return s;
-      const release = s.kind === 'available' ? s.release : s.release; if (!release) return s;
-      const d = downloadUpdate(release, progress => setState(cur => (cur.kind === 'downloading' ? { ...cur, progress } : cur)));
-      active.current = d;
-      d.promise.then(file => setState({ kind: 'ready', release, file }))
-        .catch(e => setState(/abort/i.test(String((e as Error)?.name ?? e)) ? { kind: 'available', release } : { kind: 'error', message: errorMessage(e), release }))
-        .finally(() => { active.current = null; });
-      return { kind: 'downloading', release, progress: 0 };
+    const s = latest.current;
+    const release = s.kind === 'available' ? s.release : s.kind === 'error' ? s.release : undefined;
+    if (!release || active.current) return;
+    setState({ kind: 'downloading', release, progress: 0 });
+    let last = 0;
+    const d = downloadUpdate(release, progress => {
+      // Throttle UI updates to ~1% steps so the bar animates smoothly without flooding renders.
+      if (progress - last < 0.01 && progress < 1) return; last = progress;
+      setState(cur => (cur.kind === 'downloading' ? { ...cur, progress } : cur));
     });
+    active.current = d;
+    d.promise.then(file => setState({ kind: 'ready', release, file }))
+      .catch(e => setState(/abort/i.test(String((e as Error)?.name ?? e)) ? { kind: 'available', release } : { kind: 'error', message: errorMessage(e), release }))
+      .finally(() => { active.current = null; });
   }, []);
   const cancel = useCallback(() => active.current?.cancel(), []);
   const install = useCallback(async () => { if (state.kind === 'ready') { try { await installUpdate(state.file); } catch (e) { setState({ kind: 'error', message: errorMessage(e), release: state.release }); } } }, [state]);

@@ -1,5 +1,15 @@
 export type Connection = { url: string; token: string };
-export type Session = { sessionId: string; updatedAt: number; running: boolean; blank: boolean; cwd?: string; projections?: { values: Record<string, unknown> } };
+export type Session = { sessionId: string; updatedAt: number; running: boolean; blank: boolean; cwd?: string; projections?: { values: Record<string, unknown> }; agentAvailable?: boolean; parentSessionId?: string; origin?: 'subagent' };
+/**
+ * Same rule as the DSH Web UI sidebar (`sessionVisible` in dsh-client-ui-workspace): subagent child
+ * sessions are never listed on their own (they belong to their parent thread), and blank sessions are
+ * hidden unless one is the thread you're currently in.
+ */
+export function isListedSession(s: Session, currentId?: string) {
+  if (s.origin === 'subagent') return false;
+  if (s.blank && s.sessionId !== currentId) return false;
+  return true;
+}
 export type WireEvent = { type: string; seq: number; time: number; data: Record<string, unknown> };
 export type Frame = Record<string, any>;
 

@@ -5,6 +5,7 @@ import { useApp } from '../state/app';
 import { useUpdates } from '../state/updates';
 import { Row, Section, T } from './ui';
 import { Dots } from './Loader';
+import { LiquidProgress } from './LiquidProgress';
 import { currentVersion } from '../lib/updater';
 import { relativeTime } from '../lib/time';
 
@@ -26,8 +27,8 @@ export function UpdateSection() {
       </View>
       {release.notes ? <T style="caption1" color="secondary" numberOfLines={6}>{release.notes.replace(/[#*`]/g, '').trim()}</T> : null}
       {st.kind === 'downloading' ? <View style={{ gap: 6 }}>
-        <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.fill, overflow: 'hidden' }}><View style={{ width: `${Math.round(st.progress * 100)}%`, height: 6, backgroundColor: colors.primary }} /></View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T style="caption1" color="secondary">{`Downloading… ${Math.round(st.progress * 100)}%`}</T><Pressable accessibilityRole="button" onPress={u.cancel} hitSlop={8}><T style="caption1" color="danger">Cancel</T></Pressable></View>
+        <LiquidProgress progress={st.progress} label={`Downloading ${Math.round(st.progress * 100)}% · ${mb(st.progress * release.size)} of ${mb(release.size)}`} height={40} />
+        <Pressable accessibilityRole="button" onPress={u.cancel} hitSlop={8} style={{ alignSelf: 'center', paddingVertical: 2 }}><T style="caption1" color="danger">Cancel</T></Pressable>
       </View> : null}
       {st.kind === 'error' ? <T style="caption1" color="danger">{st.message}</T> : null}
       <View style={{ flexDirection: 'row', gap: 8 }}>

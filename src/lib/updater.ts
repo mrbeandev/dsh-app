@@ -50,7 +50,12 @@ export function downloadUpdate(release: Release, onProgress: (fraction: number) 
   const abort = new AbortController();
   const task = File.createDownloadTask(release.apkUrl, target, {
     signal: abort.signal,
-    onProgress: ({ bytesWritten, totalBytes }: { bytesWritten: number; totalBytes: number }) => onProgress(totalBytes > 0 ? bytesWritten / totalBytes : release.size ? bytesWritten / release.size : 0),
+    // GitHub serves release assets through a redirect; the final response may not send Content-Length,
+    // so fall back to the size the release API reported.
+    onProgress: ({ bytesWritten, totalBytes }: { bytesWritten: number; totalBytes: number }) => {
+      const total = totalBytes > 0 ? totalBytes : release.size;
+      onProgress(total > 0 ? Math.min(1, bytesWritten / total) : 0);
+    },
   });
   const promise = task.downloadAsync().then((file: File | null) => {
     const f = file ?? target;

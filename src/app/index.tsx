@@ -2,13 +2,15 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 import { SkeletonRows } from '../components/Loader';
 import { UpdateBanner } from '../components/UpdateCard';
+import { SubagentBranches, SubagentToggle } from '../components/SubagentTree';
+import { childIndex, subagentTree } from '../lib/subagents';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/app';
 import { Button, Empty, ErrorNotice, Header, IconButton, ScrollEdge, SearchField, Screen, T, slop } from '../components/ui';
 import { Glass, GlassTarget, GlassTargetProvider } from '../components/Glass';
-import { sessionTitle } from '../lib/protocol';
+import { sessionTitle, isListedSession } from '../lib/protocol';
 import { errorMessage } from '../lib/harness';
 import { groupWorkspaces } from '../lib/workspaces';
 import { relativeTime } from '../lib/time';
@@ -27,8 +29,12 @@ export default function Home() {
   const [openState, setOpenState] = useState<Record<string, boolean>>({});
   // Per-workspace page size for long thread lists (shown 10 at a time when a workspace has more than 8).
   const [shown, setShown] = useState<Record<string, number>>({});
+  // Subagent trees under each thread: collapsed by default.
+  const [subOpen, setSubOpen] = useState<Record<string, boolean>>({});
+  const subIndex = useMemo(() => childIndex(sessions), [sessions]);
+  const byId = useMemo(() => new Map(sessions.map(x => [x.sessionId, x])), [sessions]);
   const live = status === 'connected';
-  const rows = useMemo(() => sessions.filter(x => !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || (live && x.running))), [sessions, archived, query, filter, live]);
+  const rows = useMemo(() => sessions.filter(x => isListedSession(x) && !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || (live && x.running))), [sessions, archived, query, filter, live]);
   const groups = useMemo(() => groupWorkspaces(rows, workspaces).filter(g => g.sessions.length || (!query && filter === 'All')).map(g => ({ ...g, sessions: [...g.sessions].sort((a, b) => Number(pinned.includes(b.sessionId)) - Number(pinned.includes(a.sessionId))) })), [rows, workspaces, query, filter, pinned]);
   const collapseByDefault = groups.length > 5;
   const isOpen = useCallback((id: string) => !!query || (openState[id] ?? !collapseByDefault), [query, openState, collapseByDefault]);
@@ -38,7 +44,7 @@ export default function Home() {
     const limit = shown[g.id] ?? 10;
     return { ...g, data: g.sessions.slice(0, limit), more: Math.max(0, g.sessions.length - limit) };
   }), [groups, isOpen, query, shown]);
-  const workingCount = sessions.filter(x => live && x.running).length;
+  const workingCount = sessions.filter(x => isListedSession(x) && live && x.running).length;
   const toggle = (id: string) => setOpenState(p => ({ ...p, [id]: !isOpen(id) }));
   const showMore = (id: string) => setShown(p => ({ ...p, [id]: (p[id] ?? 10) + 10 }));
   const reload = async () => { setRefreshing(true); try { await refresh(); setError(''); } catch (e) { setError(errorMessage(e)); } finally { setRefreshing(false); } };
@@ -104,13 +110,16 @@ export default function Home() {
         renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(10, section.more)} more threads in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 19, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(10, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
         renderItem={({ item }) => {
           const active = item.running && live; const attention = pending.some(p => p.agentId === item.sessionId);
+          const tree = subagentTree(item, subIndex, byId);
           return <View style={{ marginLeft: 19, paddingLeft: 10, paddingRight: 12, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator }}>
             <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 38, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: attention ? '#ffb74d' : active ? colors.live : 'transparent' }} />
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>
               {pinned.includes(item.sessionId) ? <Ionicons name="pin" size={11} color={colors.muted} /> : null}
+              <SubagentToggle nodes={tree} open={!!subOpen[item.sessionId]} onToggle={() => setSubOpen(o => ({ ...o, [item.sessionId]: !o[item.sessionId] }))} />
               <T style="caption2" color="secondary">{relativeTime(item.updatedAt)}</T>
             </Pressable>
+            {subOpen[item.sessionId] && tree.length ? <SubagentBranches nodes={tree} live={live} onOpen={n => router.push({ pathname: '/thread/[id]', params: { id: n.session.sessionId, harness: client?.connection.url ?? savedUrl } })} /> : null}
           </View>;
         }}
         ListEmptyComponent={<View style={{ flex: 1, justifyContent: 'center', paddingTop: 40, gap: 20 }}>
