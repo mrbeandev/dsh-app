@@ -23,6 +23,7 @@ import { outlineOf, seedTimes, type OutlineEntry } from '../../lib/promptIndex';
 import { usePinch } from '../../lib/usePinch';
 import { historyAddress, stableAddress, subagentLabel } from '../../lib/subagents';
 import { useNotifications } from '../../state/notifications';
+import { ChatScrollContext } from '../../components/chatScroll';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
@@ -33,6 +34,8 @@ export default function Thread() {
   // 'loading' until either the local cache or the live snapshot answers; the skeleton shows meanwhile.
   const [historyState, setHistoryState] = useState<'loading' | 'cached' | 'live'>('loading');
   const history = useRef<CachedHistory>({ records: [], cursor: -1, hasMore: false, savedAt: 0 });
+  const scrollY = useRef(0);
+  const chatScroll = useMemo(() => ({ offset: () => scrollY.current, scrollTo: (y: number) => { scrollY.current = y; list.current?.scrollToOffset({ offset: y, animated: false }); } }), []);
   const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false);
   const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState(() => takePendingDraft(id) ?? '');
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
@@ -201,19 +204,19 @@ export default function Thread() {
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
         {historyState === 'loading' && !rows.length ? <View style={{ flex: 1, paddingHorizontal: 14, paddingTop: 62 }}><SkeletonChat /></View>
         : !rows.length && !working ? <View style={{ flex: 1, justifyContent: 'center', paddingTop: 62 }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>
-        : <Animated.View style={{ flex: 1, opacity: fade }}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
+        : <Animated.View style={{ flex: 1, opacity: fade }}><ChatScrollContext.Provider value={chatScroll}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
           // Inverted: the footer renders at the visual bottom (live text, pending requests), the header at the top.
           maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }}
           initialNumToRender={14} maxToRenderPerBatch={12} windowSize={11} removeClippedSubviews={Platform.OS === 'android'}
           onScrollBeginDrag={() => { userScrolled.current = true; }}
-          onScroll={e => { const y = e.nativeEvent.contentOffset.y; if (!userScrolled.current) return; atBottom.current = y < 100; setJumpVisible(y > 300); }} scrollEventThrottle={100}
+          onScroll={e => { const y = e.nativeEvent.contentOffset.y; scrollY.current = y; if (!userScrolled.current) return; atBottom.current = y < 100; setJumpVisible(y > 300); }} scrollEventThrottle={16}
           onEndReached={() => { if (hasMore) void older(); }} onEndReachedThreshold={0.6}
           onScrollToIndexFailed={info => { list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); setTimeout(() => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.35, animated: true }), 120); }}
           keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 62 }}
           ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={`${p.clientId}:${p.eventId}`} frame={p} /> : <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
           ListFooterComponent={hasMore ? <View style={{ alignItems: 'center', paddingVertical: 10 }}>{olderBusy ? <Dots size="sm" /> : <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ height: 30, paddingHorizontal: 14, borderRadius: 15, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="caption1" color="secondary">Load earlier messages</T></Pressable>}</View> : null}
-          renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} /></View>; }} /></GestureDetector></Animated.View>}
+          renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} /></View>; }} /></GestureDetector></ChatScrollContext.Provider></Animated.View>}
         </View></GestureDetector>
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}

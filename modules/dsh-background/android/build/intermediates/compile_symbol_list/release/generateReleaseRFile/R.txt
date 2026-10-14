@@ -1,1 +1,0 @@
-int drawable dsh_stat_connected 0x0
