@@ -21,7 +21,7 @@ import { PlanReview, planReviewOf } from '../../components/PlanReview';
 import { PromptIndex } from '../../components/PromptIndex';
 import { outlineOf, seedTimes, type OutlineEntry } from '../../lib/promptIndex';
 import { usePinch } from '../../lib/usePinch';
-import { historyAddress, subagentLabel } from '../../lib/subagents';
+import { historyAddress, stableAddress, subagentLabel } from '../../lib/subagents';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
@@ -40,8 +40,12 @@ export default function Thread() {
   const session = sessions.find(x => x.sessionId === id);
   // Subagent threads need the subagent address form; a plain session address is refused for them.
   const parentSession = session?.parentSessionId ? sessions.find(x => x.sessionId === session.parentSessionId) : undefined;
-  const addressKey = JSON.stringify(historyAddress(session, id, parentSession));
-  const address = useMemo(() => JSON.parse(addressKey) as ReturnType<typeof historyAddress>, [addressKey]);
+  // Derived subagent info, computed inside one memo so the compiler knows `session` isn't mutated.
+  const sub = useMemo(() => ({
+    address: stableAddress(historyAddress(session, id, parentSession)),
+    label: session?.origin === 'subagent' ? subagentLabel(session, parentSession) : '',
+  }), [session, id, parentSession]);
+  const address = sub.address;
   const isSubagent = session?.origin === 'subagent';
   const readOnly = isSubagent && address.kind === 'subagent' && address.mode === 'one-shot';
   const [fade] = useState(() => new Animated.Value(0));
@@ -218,7 +222,7 @@ export default function Thread() {
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
-          <Header title={session ? (isSubagent ? subagentLabel(session, parentSession) : sessionTitle(session)) : 'Thread'} subtitle={isSubagent ? `Subagent${readOnly ? ' · one-shot' : ''}${subtitle ? ` · ${subtitle}` : ''}` : subtitle || undefined} back>
+          <Header title={session ? (isSubagent ? sub.label : sessionTitle(session)) : 'Thread'} subtitle={isSubagent ? `Subagent${readOnly ? ' · one-shot' : ''}${subtitle ? ` · ${subtitle}` : ''}` : subtitle || undefined} back>
             {isSubagent && session?.parentSessionId ? <IconButton icon="git-branch-outline" size={18} label="Open parent thread" onPress={() => router.push({ pathname: '/thread/[id]', params: { id: session.parentSessionId!, harness: harnessUrl } })} /> : null}
             {outline.length ? <IconButton icon="list-outline" size={18} label="Prompts" onPress={() => setPromptsOpen(true)} /> : null}
             <IconButton icon="folder-open-outline" size={18} label="Files" onPress={() => router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd } })} />

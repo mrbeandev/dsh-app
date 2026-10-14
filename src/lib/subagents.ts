@@ -59,3 +59,13 @@ export function historyAddress(session: Session | undefined, sessionId: string, 
   }
   return { kind: 'session' as const, sessionId };
 }
+
+/** Same object for the same address value (keeps effect dependencies stable across renders). */
+type Address = ReturnType<typeof historyAddress>;
+const interned = new Map<string, Address>();
+export function stableAddress(a: Address): Address {
+  const key = JSON.stringify(a);
+  const hit = interned.get(key); if (hit) return hit;
+  if (interned.size > 500) interned.clear();
+  interned.set(key, a); return a;
+}
