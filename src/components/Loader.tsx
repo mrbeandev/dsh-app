@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+
 import { useApp } from '../state/app';
+
+const SHINE = require('../../assets/brand/whale-shine.png');
+const GLOW = require('../../assets/brand/whale-glow.png');
+const SHINE_FRAMES = 17; // 16 sweep frames + the clean logo (last)
+const SHINE_CYCLE = 3000;
 
 /** Shared looping driver (0→1). Reduce Motion: holds still at a mid value instead of animating. */
 function useLoop(duration: number) {
@@ -39,10 +45,39 @@ export function Dots({ size = 'md', color, style }: { size?: 'sm' | 'md' | 'lg';
 }
 
 /** Centered page/section loader with an optional label (e.g. "Loading chat…"). */
+/**
+ * Brand mark loader: the glass whale with a light sweep across the glass and a breathing blue
+ * glow (approved "Glass shine" design). The sweep is a pre-rendered 17-frame strip stepped by the
+ * native driver, so it costs no JS work per frame. Reduce Motion shows the still logo.
+ */
+export function WhaleShine({ size = 72, style }: { size?: number; style?: StyleProp<ViewStyle> }) {
+  const t = useLoop(SHINE_CYCLE);
+  // Timeline (matches the design): 0–55% still, 55–85% sweep, 85–100% still.
+  const inputRange: number[] = []; const outputRange: number[] = [];
+  const still = -(SHINE_FRAMES - 1) * size;
+  inputRange.push(0, 0.55); outputRange.push(still, still);
+  for (let k = 0; k < SHINE_FRAMES - 1; k++) {
+    const start = 0.55 + (k / (SHINE_FRAMES - 1)) * 0.3, end = 0.55 + ((k + 1) / (SHINE_FRAMES - 1)) * 0.3;
+    inputRange.push(start + 1e-4, end); outputRange.push(-k * size, -k * size);
+  }
+  inputRange.push(0.85 + 2e-4, 1); outputRange.push(still, still);
+  const translateX = t.interpolate({ inputRange, outputRange });
+  const glow = t.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.35, 1, 0.35] });
+  const pad = size * 0.25;
+  return <View accessibilityRole="image" accessibilityLabel="Loading" style={[{ width: size, height: size }, style]}>
+    <Animated.Image source={GLOW} style={{ position: 'absolute', left: -pad, top: -pad, width: size + pad * 2, height: size + pad * 2, opacity: glow }} />
+    <View style={{ width: size, height: size, overflow: 'hidden' }}>
+      <Animated.Image source={SHINE} style={{ width: size * SHINE_FRAMES, height: size, transform: [{ translateX }] }} />
+    </View>
+  </View>;
+}
+
+const WHALE_SIZE = { sm: 32, md: 56, lg: 84 } as const;
+
 export function Loading({ label, fill = true, size = 'lg', style }: { label?: string; fill?: boolean; size?: 'sm' | 'md' | 'lg'; style?: StyleProp<ViewStyle> }) {
   const { colors } = useApp();
-  return <View accessibilityLiveRegion="polite" style={[{ alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 32 }, fill && { flex: 1 }, style]}>
-    <Dots size={size} />
+  return <View accessibilityLiveRegion="polite" style={[{ alignItems: 'center', justifyContent: 'center', gap: 14, paddingVertical: 32 }, fill && { flex: 1 }, style]}>
+    <WhaleShine size={WHALE_SIZE[size]} />
     {label ? <Text style={{ fontSize: 13, lineHeight: 18, color: colors.muted }}>{label}</Text> : null}
   </View>;
 }
