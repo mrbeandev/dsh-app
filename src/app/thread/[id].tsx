@@ -21,7 +21,7 @@ import { PlanReview, planReviewOf } from '../../components/PlanReview';
 import { PromptIndex } from '../../components/PromptIndex';
 import { outlineOf, seedTimes, type OutlineEntry } from '../../lib/promptIndex';
 import { usePinch } from '../../lib/usePinch';
-import { historyAddress } from '../../lib/subagents';
+import { historyAddress, subagentLabel } from '../../lib/subagents';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
@@ -218,7 +218,7 @@ export default function Thread() {
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
-          <Header title={session ? sessionTitle(session) : 'Thread'} subtitle={subtitle || undefined} back>
+          <Header title={session ? (isSubagent ? subagentLabel(session, parentSession) : sessionTitle(session)) : 'Thread'} subtitle={isSubagent ? `Subagent${readOnly ? ' · one-shot' : ''}${subtitle ? ` · ${subtitle}` : ''}` : subtitle || undefined} back>
             {isSubagent && session?.parentSessionId ? <IconButton icon="git-branch-outline" size={18} label="Open parent thread" onPress={() => router.push({ pathname: '/thread/[id]', params: { id: session.parentSessionId!, harness: harnessUrl } })} /> : null}
             {outline.length ? <IconButton icon="list-outline" size={18} label="Prompts" onPress={() => setPromptsOpen(true)} /> : null}
             <IconButton icon="folder-open-outline" size={18} label="Files" onPress={() => router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd } })} />
