@@ -21,7 +21,7 @@ export type TurnEnd = { kind?: string; reason?: { kind?: string }; error?: { mes
 /** What a finished turn means for notifications (null = nothing to say). */
 export function endAlert(end: TurnEnd, sessionId: string, title: string, lastReply: string, stoppedByMe: boolean): Alert | null {
   const k = end?.kind ?? 'completed';
-  if (k === 'completed') return { kind: 'finished', sessionId, title, body: firstLine(lastReply) || 'Finished.' };
+  if (k === 'completed') return { kind: 'finished', sessionId, title, body: preview(lastReply) || 'Finished.' };
   if (k === 'error') {
     const e = end?.error ?? {};
     const msg = e.code === 'QUOTA' || e.code === 'ACCOUNT_QUOTA' ? 'Usage quota reached.' : String(e.message ?? e.code ?? 'The turn failed.');
@@ -31,7 +31,7 @@ export function endAlert(end: TurnEnd, sessionId: string, title: string, lastRep
   if (k === 'max-tokens') return { kind: 'failed', sessionId, title, body: 'Stopped: reached the output-token limit.' };
   if (k === 'blocked') return { kind: 'failed', sessionId, title, body: 'The turn was blocked.' };
   if (k === 'interrupted') return { kind: 'stopped', sessionId, title, body: 'The turn was interrupted.' };
-  return { kind: 'finished', sessionId, title, body: firstLine(lastReply) || 'Finished.' };
+  return { kind: 'finished', sessionId, title, body: preview(lastReply) || 'Finished.' };
 }
 
 /**
@@ -51,6 +51,17 @@ export function requestAlert(frame: any, title: string): Alert | null {
   }
   const q = questions[0];
   return { kind: 'input', sessionId, title, body: firstLine(String(q?.question ?? q?.header ?? req.question ?? '')) || 'The agent is waiting for your answer.' };
+}
+
+/**
+ * Reply preview: the reply's opening, several lines joined, so short answers show whole
+ * ("1 · 2 · 3 · BG_DONE") and long ones start with their first sentence. Android shows ~2 lines
+ * collapsed and the full text expanded.
+ */
+export function preview(text: string, max = 240) {
+  const lines = String(text ?? '').split('\n').map(l => firstLine(l, max)).filter(Boolean);
+  const joined = lines.join(' · ');
+  return joined.length > max ? `${joined.slice(0, max - 1)}…` : joined;
 }
 
 export function firstLine(text: string, max = 140) {

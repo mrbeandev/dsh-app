@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { endAlert, firstLine, requestAlert, shouldDeliver } from './notify';
+import { endAlert, firstLine, preview, requestAlert, shouldDeliver } from './notify';
 
 describe('notification decisions', () => {
   it('finished turn → first line of the reply', () => {
-    expect(endAlert({ kind: 'completed' }, 's1', 'Fix login', '## Done\n\nAll **tests** pass now.', false)).toMatchObject({ kind: 'finished', body: 'Done' });
+    expect(endAlert({ kind: 'completed' }, 's1', 'Fix login', '## Done\n\nAll **tests** pass now.', false)).toMatchObject({ kind: 'finished', body: 'Done · All tests pass now.' });
+    expect(preview('1\n2\n3\n4\n5\nBG_DONE')).toBe('1 · 2 · 3 · 4 · 5 · BG_DONE');
+    expect(preview('word '.repeat(100)).length).toBeLessThanOrEqual(240);
   });
   it('errors and quota → failed', () => {
     expect(endAlert({ kind: 'error', error: { code: 'QUOTA' } }, 's', 't', '', false)?.body).toBe('Usage quota reached.');
