@@ -3,12 +3,13 @@ import { AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { checkForUpdate, downloadUpdate, installUpdate, type Download, type UpdateState } from '../lib/updater';
 import { errorMessage } from '../lib/harness';
+import { canInstallPackages, openInstallPermissionSettings } from '../../modules/dsh-installer';
 
 const LAST_CHECK = 'dsh.update.lastCheck';
 const SKIPPED = 'dsh.update.skipped';
 const EVERY_MS = 6 * 60 * 60 * 1000;
 
-type Api = { state: UpdateState; check: (manual?: boolean) => Promise<void>; download: () => void; cancel: () => void; install: () => Promise<void>; skip: () => void; skipped: string };
+type Api = { state: UpdateState; check: (manual?: boolean) => Promise<void>; download: () => void; cancel: () => void; install: () => Promise<void>; skip: () => void; skipped: string; grantPermission: () => void };
 const Ctx = createContext<Api | null>(null);
 
 /** Async updater: never blocks app work. Checks on launch/foreground (≤ every 6 h) and on demand. */
@@ -34,12 +35,6 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     finally { busy.current = false; }
   }, []);
 
-  useEffect(() => {
-    void SecureStore.getItemAsync(SKIPPED).then(v => setSkipped(v ?? '')).catch(() => {});
-    const t = setTimeout(() => void check(false), 4000); // after the app has settled
-    const sub = AppState.addEventListener('change', s => { if (s === 'active') void check(false); });
-    return () => { clearTimeout(t); sub.remove(); };
-  }, [check]);
 
   // Start the download from the current state (never inside a state updater: React may run updaters
   // twice, which started two downloads and let the stale one's progress be ignored).
@@ -47,8 +42,10 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { latest.current = state; }, [state]);
   const download = useCallback(() => {
     const s = latest.current;
-    const release = s.kind === 'available' ? s.release : s.kind === 'error' ? s.release : undefined;
+    const release = s.kind === 'available' || s.kind === 'needs-permission' ? s.release : s.kind === 'error' ? s.release : undefined;
     if (!release || active.current) return;
+    // Ask for "Install unknown apps" BEFORE spending data on the download.
+    if (canInstallPackages() === false) { setState({ kind: 'needs-permission', release }); return; }
     setState({ kind: 'downloading', release, progress: 0 });
     let last = 0;
     const d = downloadUpdate(release, progress => {
@@ -61,11 +58,24 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       .catch(e => setState(/abort/i.test(String((e as Error)?.name ?? e)) ? { kind: 'available', release } : { kind: 'error', message: errorMessage(e), release }))
       .finally(() => { active.current = null; });
   }, []);
+  useEffect(() => {
+    void SecureStore.getItemAsync(SKIPPED).then(v => setSkipped(v ?? '')).catch(() => {});
+    const t = setTimeout(() => void check(false), 4000); // after the app has settled
+    const sub = AppState.addEventListener('change', s => {
+      if (s !== 'active') return;
+      void check(false);
+      const cur = latest.current;
+      if (cur.kind === 'needs-permission' && canInstallPackages()) { setState({ kind: 'available', release: cur.release }); setTimeout(() => download(), 0); }
+    });
+    return () => { clearTimeout(t); sub.remove(); };
+  }, [check, download]);
+
   const cancel = useCallback(() => active.current?.cancel(), []);
+  const grantPermission = useCallback(() => openInstallPermissionSettings(), []);
   const install = useCallback(async () => { if (state.kind === 'ready') { try { await installUpdate(state.file); } catch (e) { setState({ kind: 'error', message: errorMessage(e), release: state.release }); } } }, [state]);
   const skip = useCallback(() => { if (state.kind === 'available') { setSkipped(state.release.version); void SecureStore.setItemAsync(SKIPPED, state.release.version).catch(() => {}); } }, [state]);
 
-  const value = useMemo(() => ({ state, check, download, cancel, install, skip, skipped }), [state, check, download, cancel, install, skip, skipped]);
+  const value = useMemo(() => ({ state, check, download, cancel, install, skip, skipped, grantPermission }), [state, check, download, cancel, install, skip, skipped, grantPermission]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 export function useUpdates() { const v = useContext(Ctx); if (!v) throw new Error('UpdateProvider missing'); return v; }

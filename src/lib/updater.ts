@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { File, Paths } from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
+import { sha256File } from '../../modules/dsh-installer';
 
 /**
  * In-app updater (Android). Releases are published on GitHub; each release carries one APK asset.
@@ -13,10 +14,10 @@ import * as IntentLauncher from 'expo-intent-launcher';
 export const REPO = 'mrbeandev/dsh-app';
 const API = `https://api.github.com/repos/${REPO}/releases/latest`;
 
-export type Release = { version: string; tag: string; name: string; notes: string; publishedAt: string; url: string; apkUrl: string; apkName: string; size: number };
+export type Release = { version: string; tag: string; name: string; notes: string; publishedAt: string; url: string; apkUrl: string; apkName: string; size: number; sha256?: string };
 export type UpdateState =
   | { kind: 'idle' } | { kind: 'checking' } | { kind: 'current'; checkedAt: number }
-  | { kind: 'available'; release: Release } | { kind: 'downloading'; release: Release; progress: number }
+  | { kind: 'available'; release: Release } | { kind: 'needs-permission'; release: Release } | { kind: 'downloading'; release: Release; progress: number }
   | { kind: 'ready'; release: Release; file: string } | { kind: 'error'; message: string; release?: Release };
 
 export const currentVersion = (): string => Constants.expoConfig?.version ?? '0.0.0';
@@ -32,7 +33,13 @@ export function compareVersions(a: string, b: string) {
 export function pickRelease(json: any): Release | null {
   const asset = (json?.assets ?? []).find((a: any) => /\.apk$/i.test(String(a?.name ?? '')));
   if (!json?.tag_name || !asset?.browser_download_url) return null;
-  return { version: String(json.tag_name).replace(/^v/i, ''), tag: String(json.tag_name), name: String(json.name || json.tag_name), notes: String(json.body ?? ''), publishedAt: String(json.published_at ?? ''), url: String(json.html_url ?? `https://github.com/${REPO}/releases`), apkUrl: String(asset.browser_download_url), apkName: String(asset.name), size: Number(asset.size) || 0 };
+  return { version: String(json.tag_name).replace(/^v/i, ''), tag: String(json.tag_name), name: String(json.name || json.tag_name), notes: String(json.body ?? ''), publishedAt: String(json.published_at ?? ''), url: String(json.html_url ?? `https://github.com/${REPO}/releases`), apkUrl: String(asset.browser_download_url), apkName: String(asset.name), size: Number(asset.size) || 0, sha256: digestOf(asset) };
+}
+
+/** GitHub publishes `digest: "sha256:<hex>"` for each release asset. */
+export function digestOf(asset: any): string | undefined {
+  const m = /^sha256:([0-9a-f]{64})$/i.exec(String(asset?.digest ?? ''));
+  return m ? m[1].toLowerCase() : undefined;
 }
 
 export async function checkForUpdate(signal?: AbortSignal): Promise<Release | null> {
@@ -43,6 +50,7 @@ export async function checkForUpdate(signal?: AbortSignal): Promise<Release | nu
   return release && compareVersions(release.version, currentVersion()) > 0 ? release : null;
 }
 
+export class UpdateCorrupt extends Error { constructor(message: string) { super(`${message} Tap Download to try again.`); this.name = 'UpdateCorrupt'; } }
 export type Download = { promise: Promise<string>; cancel: () => void };
 export function downloadUpdate(release: Release, onProgress: (fraction: number) => void): Download {
   const target = new File(Paths.cache, `dsh-update-${release.version}.apk`);
@@ -57,9 +65,15 @@ export function downloadUpdate(release: Release, onProgress: (fraction: number) 
       onProgress(total > 0 ? Math.min(1, bytesWritten / total) : 0);
     },
   });
-  const promise = task.downloadAsync().then((file: File | null) => {
+  const promise = task.downloadAsync().then(async (file: File | null) => {
     const f = file ?? target;
-    if (release.size && f.size !== release.size) throw new Error('The download is incomplete. Try again.');
+    if (release.size && f.size !== release.size) { f.delete(); throw new UpdateCorrupt('The download is incomplete.'); }
+    // Verify the exact bytes GitHub published, so a damaged download never reaches the installer
+    // (Android would only say "package appears to be invalid").
+    if (release.sha256) {
+      const actual = await sha256File(f.uri);
+      if (actual && actual !== release.sha256) { f.delete(); throw new UpdateCorrupt('The download was corrupted (checksum mismatch).'); }
+    }
     return f.uri;
   });
   return { promise, cancel: () => abort.abort() };

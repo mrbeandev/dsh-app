@@ -31,13 +31,18 @@ export function UpdateSection() {
         <Pressable accessibilityRole="button" onPress={u.cancel} hitSlop={8} style={{ alignSelf: 'center', paddingVertical: 2 }}><T style="caption1" color="danger">Cancel</T></Pressable>
       </View> : null}
       {st.kind === 'error' ? <T style="caption1" color="danger">{st.message}</T> : null}
+      {st.kind === 'needs-permission' ? <View style={{ flexDirection: 'row', gap: 10, padding: 10, borderRadius: 12, backgroundColor: colors.fill }}>
+        <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} style={{ marginTop: 1 }} />
+        <T style="caption1" color="secondary" styleOverride={{ flex: 1 }}>Android needs your OK before DSH Mobile can install updates. Turn on “Allow from this source” on the next screen, then come back — the download starts automatically.</T>
+      </View> : null}
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Btn label="Release Notes" icon="logo-github" onPress={() => void Linking.openURL(release.url)} />
         {st.kind === 'ready' ? <Btn primary label="Install" icon="download-outline" onPress={() => void u.install()} />
           : st.kind === 'downloading' ? null
+          : st.kind === 'needs-permission' ? <Btn primary label="Allow Installs" icon="settings-outline" onPress={u.grantPermission} />
           : <Btn primary label="Download Update" icon="cloud-download-outline" onPress={u.download} />}
       </View>
-      {st.kind === 'ready' ? <T style="caption2" color="tertiary">Android may ask you to allow installs from DSH Mobile the first time. Your chats and connection are kept.</T> : null}
+      {st.kind === 'ready' ? <T style="caption2" color="tertiary">Download verified (SHA-256 matches the GitHub release). Your chats and connection are kept.</T> : null}
     </View> : null}
     {st.kind === 'checking' ? <View style={{ padding: 14, flexDirection: 'row', gap: 10, alignItems: 'center' }}><Dots size="sm" /><T style="footnote" color="secondary">Checking for updates…</T></View>
       : !release ? <Row icon="refresh-outline" title="Check for Updates" onPress={() => void u.check(true)} /> : null}

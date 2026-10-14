@@ -3,7 +3,8 @@ vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '12.0.0' } } }));
 vi.mock('expo-file-system', () => ({ File: class {}, Paths: {} }));
 vi.mock('expo-intent-launcher', () => ({}));
-const { compareVersions, pickRelease, checkForUpdate } = await import('./updater');
+vi.mock('../../modules/dsh-installer', () => ({ sha256File: async () => null }));
+const { compareVersions, pickRelease, checkForUpdate, digestOf } = await import('./updater');
 
 const gh = (tag: string, apk = true) => ({ tag_name: tag, name: `DSH Mobile ${tag}`, body: 'Notes', published_at: '2026-10-13T15:00:00Z', html_url: `https://github.com/mrbeandev/dsh-app/releases/tag/${tag}`, assets: apk ? [{ name: `dsh-mobile-${tag}.apk`, browser_download_url: `https://github.com/mrbeandev/dsh-app/releases/download/${tag}/dsh-mobile-${tag}.apk`, size: 50_000_000 }] : [] });
 
@@ -24,5 +25,17 @@ describe('updater', () => {
     expect((await checkForUpdate())?.version).toBe('12.1.0');
     expect(await checkForUpdate()).toBeNull();
     expect(await checkForUpdate()).toBeNull();
+  });
+});
+
+describe('release digest', () => {
+  it('reads the sha256 GitHub publishes for the APK asset', () => {
+    const r = pickRelease({ tag_name: 'v12.1.3', assets: [{ name: 'dsh-mobile-v12.1.3.apk', browser_download_url: 'https://x/a.apk', size: 5, digest: 'sha256:75E1117FD8E466E178A6675947E6B0B164FDB906848F80028BEA48E5109FB786' }] });
+    expect(r?.sha256).toBe('75e1117fd8e466e178a6675947e6b0b164fdb906848f80028bea48e5109fb786');
+  });
+  it('ignores missing or malformed digests', () => {
+    expect(digestOf({})).toBeUndefined();
+    expect(digestOf({ digest: 'md5:abc' })).toBeUndefined();
+    expect(digestOf({ digest: 'sha256:short' })).toBeUndefined();
   });
 });

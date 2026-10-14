@@ -71,19 +71,31 @@ export class ShellBrowser {
 
   async open() {
     await this.client.call('terminal/create', { agentId: this.sessionId, request: { id: this.id, cols: 200, rows: 50 } });
+    // The Harness gives input control to the latest *attached* viewer. The attachment exists once the
+    // follow stream delivers its opening snapshot, so wait for that before writing anything.
+    let attached!: () => void; let failed!: (e: Error) => void;
+    const ready = new Promise<void>((res, rej) => { attached = res; failed = rej; });
     this.stop = this.client.follow('terminal/follow', { agentId: this.sessionId, id: this.id, attachmentId: this.attachment }, f => {
-      if (f.type === 'output') this.out += f.data ?? '';
-      else if (f.type === 'snapshot') this.out += f.screen ?? '';
+      if (f.type === 'snapshot') { this.out += f.screen ?? ''; attached(); }
+      else if (f.type === 'output') this.out += f.data ?? '';
+      else if (f.type === 'stream-error') failed(new Error(f.error?.message ?? 'Terminal stream failed.'));
       if (this.out.length > 400_000) this.out = this.out.slice(-200_000);
     });
+    const timer = setTimeout(() => failed(new Error('The Harness terminal did not attach in time.')), 10000);
+    try { await ready; } finally { clearTimeout(timer); }
     // Quiet, predictable shell: no echo, no history, plain prompt; works in bash/zsh/sh.
     await this.write(" stty -echo 2>/dev/null; unset HISTFILE; PS1=''; PROMPT_COMMAND=''; export LC_ALL=C\n");
     const r = await this.run(tag => `printf '%s_B\\n' ${tag}; printf '%s\\n' "$HOME"; printf '%s_E:0\\n' ${tag}`);
     this.home = r.body.trim().split('\n').pop()?.trim() || '/';
   }
 
-  private write(data: string) {
-    return this.client.call('terminal/write', { agentId: this.sessionId, id: this.id, attachmentId: this.attachment, data });
+  private async write(data: string) {
+    const call = () => this.client.call('terminal/write', { agentId: this.sessionId, id: this.id, attachmentId: this.attachment, data });
+    try { return await call(); }
+    catch (e) {
+      if (!/controlled by another attachment/i.test(String((e as Error)?.message ?? e))) throw e;
+      await new Promise(r => setTimeout(r, 400)); return call();
+    }
   }
 
   /** Run one fenced command; serialised so outputs never interleave. */
