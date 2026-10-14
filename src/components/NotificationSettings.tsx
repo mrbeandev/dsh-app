@@ -25,7 +25,7 @@ export function NotificationSection() {
   return <>
     <Section header="Notifications" footer="You won’t be notified about the thread you’re looking at. Each thread shows one notification, updated as things change.">
       <Row icon="help-circle-outline" title="Needs your input" subtitle="Questions, approvals, plan reviews" chevron={false} accessory={toggle(n.prefs.input, v => n.setPref('input', v), 'Needs your input')} />
-      <Row icon="checkmark-circle-outline" title="Finished" subtitle="With the first line of the reply" chevron={false} accessory={toggle(n.prefs.finished, v => n.setPref('finished', v), 'Finished')} />
+      <Row icon="checkmark-circle-outline" title="Finished" subtitle="With a preview of the reply" chevron={false} accessory={toggle(n.prefs.finished, v => n.setPref('finished', v), 'Finished')} />
       <Row icon="alert-circle-outline" title="Failed" subtitle="Errors, quota, crashes" chevron={false} accessory={toggle(n.prefs.failed, v => n.setPref('failed', v), 'Failed')} />
       <Row icon="stop-circle-outline" title="Stopped" subtitle="Cancelled or interrupted, not by you" chevron={false} accessory={toggle(n.prefs.stopped, v => n.setPref('stopped', v), 'Stopped')} />
     </Section>
