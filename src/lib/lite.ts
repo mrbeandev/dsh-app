@@ -1,4 +1,5 @@
 import { toolTitle, type WireEvent } from './protocol';
+import { classifyTool, toolSummary } from './toolLabel';
 
 /**
  * Lightweight chat model.
@@ -25,8 +26,11 @@ export function liteEvent(e: WireEvent): WireEvent {
       const args = String(d.arguments ?? '');
       if (args.length <= BIG_TOOL_ARGS) return e;
       // Keep only what the row title needs: the target derived from the full args.
-      const { target } = toolTitle(String(d.name ?? 'tool'), args);
-      return { ...e, data: { callId: d.callId, name: d.name, arguments: JSON.stringify(titleArgs(String(d.name ?? ''), target)), __lite: { lite: true, bytes: size() } } };
+      // Keep exactly what the row title needs: the Web UI summary (description / path / query).
+      const name = String(d.name ?? 'tool');
+      const summary = toolSummary(name, args).slice(0, 200); // one display line is all the title needs
+      const { target } = toolTitle(name, args);
+      return { ...e, data: { callId: d.callId, name: d.name, arguments: JSON.stringify({ ...titleArgs(name, target), ...summaryArgs(name, summary) }), __lite: { lite: true, bytes: size() } } };
     }
     case 'tool/result': {
       const m = d.message ?? {};
@@ -61,6 +65,16 @@ export function liteEvent(e: WireEvent): WireEvent {
     default:
       return e;
   }
+}
+
+/** Args that make toolSummary() return the same summary (bash/code keep `description`). */
+function summaryArgs(name: string, summary: string): Record<string, string> {
+  const v = classifyTool(name);
+  if (!summary) return {};
+  if (v === 'bash' || v === 'code') return { description: summary };
+  if (v === 'search') return { query: summary };
+  if (v === 'read' || v === 'write' || v === 'edit') return { path: summary };
+  return { summary };
 }
 
 /** Minimal args that make toolTitle() produce the same target. */

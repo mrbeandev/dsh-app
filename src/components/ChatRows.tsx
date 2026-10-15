@@ -8,6 +8,7 @@ import { useApp } from '../state/app';
 import { T } from './ui';
 import { MessageMarkdown } from './MessageMarkdown';
 import { buildTranscript, toolTitle, type ContextIcon, type TranscriptRow, type WireEvent } from '../lib/protocol';
+import { toolLabel, toolSummary } from '../lib/toolLabel';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -131,8 +132,10 @@ export const ChatRow = memo(function ChatRow({ row, onUserAction, highlighted }:
         {row.text ? <View><View style={{ marginBottom: 3 }}><T style="caption2" color="secondary">Assistant</T></View><MessageMarkdown text={row.text} />{row.interrupted ? <T style="caption1" color="tertiary">Interrupted</T> : null}</View> : null}
       </View>;
     case 'tool': {
-      const { verb, target } = toolTitle(row.name, row.args);
-      const title = <Text numberOfLines={1} style={{ fontSize: 13, lineHeight: 18 }}><Text style={{ color: row.isError ? colors.danger : colors.muted, fontWeight: '500' }}>{verb}</Text>{target ? <Text style={{ color: colors.tertiary, fontFamily: MONO, fontSize: 12 }}>{'  '}{target}</Text> : null}{row.approval ? <Text style={{ color: row.approval === 'denied' ? colors.danger : row.approval === 'asked' ? '#ffb74d' : colors.tertiary, fontSize: 11 }}>{'  ·  '}{row.approval === 'asked' ? 'Needs approval' : row.approval === 'allowed' ? 'Allowed' : row.approval === 'denied' ? 'Denied' : 'Approval cancelled'}</Text> : null}</Text>;
+      // Web UI title: "Bash · Watch sync time" — the tool's label plus the agent-written description
+      // (or path/query), never the raw command.
+      const verb = toolTitle(row.name, row.args).verb; const label = toolLabel(row.name); const summary = toolSummary(row.name, row.args);
+      const title = <Text numberOfLines={1} style={{ fontSize: 13, lineHeight: 18 }}><Text style={{ color: row.isError ? colors.danger : colors.muted, fontWeight: '500' }}>{label}</Text>{summary ? <Text style={{ color: colors.tertiary }}>{'  ·  '}{summary}</Text> : null}{row.approval ? <Text style={{ color: row.approval === 'denied' ? colors.danger : row.approval === 'asked' ? '#ffb74d' : colors.tertiary, fontSize: 11 }}>{'  ·  '}{row.approval === 'asked' ? 'Needs approval' : row.approval === 'allowed' ? 'Allowed' : row.approval === 'denied' ? 'Denied' : 'Approval cancelled'}</Text> : null}</Text>;
       const toolBody = (t: Extract<TranscriptRow, { kind: 'tool' }>) => <>
         {t.args ? <Mono label={t.name} text={prettyArgs(t.args)} /> : null}
         {t.result !== undefined ? <><View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} /><Mono label={t.isError ? 'Error' : 'Result'} text={t.errorReason ? `${t.errorReason}\n\n${t.result}` : t.result || '(no output)'} color={t.isError ? colors.danger : undefined} /></> : null}

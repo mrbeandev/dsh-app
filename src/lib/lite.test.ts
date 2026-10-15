@@ -55,3 +55,15 @@ describe('expanding a lite step', () => {
     expect(full.lite).toBe(false);
   });
 });
+
+describe('lite tool calls keep the Web UI title', () => {
+  it('summary is the same before and after expanding', async () => {
+    const { toolSummary } = await import('./toolLabel');
+    const args = JSON.stringify({ command: 'x'.repeat(500) + '\nmore', description: 'Rebuild the release APK' });
+    const lite = liteEvent(ev(1, 'tool/call', { callId: 'c', name: 'bash_ide', arguments: args }));
+    expect(toolSummary('bash_ide', String(lite.data.arguments))).toBe('Rebuild the release APK');
+    const p = JSON.stringify({ file_path: '/very/long/path/' + 'd/'.repeat(80) + 'index.tsx', content: 'y'.repeat(500) });
+    const lw = liteEvent(ev(2, 'tool/call', { callId: 'w', name: 'write', arguments: p }));
+    expect(toolSummary('write', String(lw.data.arguments))).toBe(toolSummary('write', p));
+  });
+});
