@@ -8,6 +8,18 @@ import { errorMessage } from '../lib/harness';
 
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
+export type QueueItem = { id: string; text: string; editable: boolean };
+
+/** One inbox message (wire JSON) → its id and visible text. Non-text parts (images) block editing. */
+export function toQueueItem(m: any): QueueItem | null {
+  const id = typeof m?.id === 'string' ? m.id : '';
+  if (!id) return null;
+  const blocks: any[] = Array.isArray(m.content) ? m.content : [];
+  const text = blocks.filter(b => b?.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
+  const editable = blocks.length > 0 && blocks.every(b => b?.type === 'text');
+  const others = blocks.length - blocks.filter(b => b?.type === 'text').length;
+  return { id, text: text || (others ? `${others} attachment${others === 1 ? '' : 's'}` : '(empty)'), editable };
+}
 type Todo = { content?: string; status?: string; activeForm?: string };
 type GoalProjection = { goal?: { id: string; revision: number; objective: string; phase: 'active' | 'paused' | 'blocked' | 'complete'; blockedReason?: { message?: string } }; roundsStarted?: number } | null;
 
@@ -19,7 +31,11 @@ type GoalProjection = { goal?: { id: string; revision: number; objective: string
 export function ComposerContext({ sessionId, values }: { sessionId: string; values: Record<string, any> }) {
   const todos: Todo[] = Array.isArray(values.todos?.items) ? values.todos.items : Array.isArray(values.todos) ? values.todos : [];
   const goal = (values.goal as GoalProjection)?.goal;
-  const queue: unknown[] = [...(values.inbox?.['next-turn'] ?? []), ...(values.inbox?.['next-step'] ?? [])];
+  // Harness inbox: next-turn = queued (waits for the turn to end); next-step = steering (delivered at
+  // the agent's next step boundary). Both are durable on the Harness, so they survive navigation.
+  const queued: QueueItem[] = (values.inbox?.['next-turn'] ?? []).map(toQueueItem).filter(Boolean) as QueueItem[];
+  const steering: QueueItem[] = (values.inbox?.['next-step'] ?? []).map(toQueueItem).filter(Boolean) as QueueItem[];
+  const queue = [...queued, ...steering];
   const plan = values.plan as { active?: boolean; pending?: boolean } | undefined;
   const questions = values.userQuestions?.active?.length ?? 0;
   const showTodos = todos.length > 0 && todos.some(t => t.status !== 'completed');
@@ -28,10 +44,61 @@ export function ComposerContext({ sessionId, values }: { sessionId: string; valu
   return <View style={{ gap: 4, paddingHorizontal: 10, paddingBottom: 4 }}>
     {showTodos ? <TodoCard todos={todos} /> : null}
     {showGoal ? <GoalCard sessionId={sessionId} goal={goal!} rounds={(values.goal as GoalProjection)?.roundsStarted ?? 0} /> : null}
-    {queue.length ? <Card icon="layers-outline" label="Queued" text={`${queue.length} message${queue.length === 1 ? '' : 's'} waiting for the next turn`} /> : null}
+    {queue.length ? <QueueDock sessionId={sessionId} queued={queued} steering={steering} /> : null}
     {plan?.active ? <Card icon="map-outline" label="Plan mode" text={plan.pending ? 'A plan is waiting for your review' : 'The agent will propose a plan before acting'} /> : null}
     {questions ? <Card icon="help-circle-outline" label="Question" text={`The agent is waiting for ${questions === 1 ? 'your answer' : `${questions} answers`}`} tint="warning" /> : null}
   </View>;
+}
+
+/**
+ * Web UI QueueDock parity: lists messages waiting in the Harness inbox. Queued ones can be
+ * steered (deliver at the agent's next step instead of after the turn), edited, or removed —
+ * all through the official `session/updateQueue` RPC, so the web UI sees the same queue.
+ */
+function QueueDock({ sessionId, queued, steering }: { sessionId: string; queued: QueueItem[]; steering: QueueItem[] }) {
+  const { client, colors } = useApp(); const dialog = useDialog();
+  const [open, setOpen] = useState(true); const [busy, setBusy] = useState(''); const [error, setError] = useState('');
+  const act = async (itemId: string, action: Record<string, unknown>) => {
+    if (!client || busy) return; setBusy(itemId); setError('');
+    try { await client.request('session/updateQueue', { sessionId, itemId, action }); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
+  };
+  const edit = async (q: QueueItem) => {
+    const text = await dialog.prompt({ title: 'Edit Queued Message', initial: q.text, placeholder: 'Message', confirm: 'Save', multiline: true });
+    if (text && text.trim() && text !== q.text) await act(q.id, { kind: 'edit', content: [{ type: 'text', text: text.trim() }] });
+  };
+  const remove = async (q: QueueItem) => {
+    if (await dialog.confirm({ title: 'Remove Queued Message?', message: q.text.length > 140 ? `${q.text.slice(0, 140)}…` : q.text, confirm: 'Remove', destructive: true, icon: 'trash-outline' })) await act(q.id, { kind: 'remove' });
+  };
+  const total = queued.length + steering.length;
+  const summary = [queued.length ? `${queued.length} queued` : '', steering.length ? `${steering.length} steering` : ''].filter(Boolean).join(' · ');
+  return <Shell>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${summary}. ${open ? 'Collapse' : 'Expand'}`} onPress={() => setOpen(o => !o)} style={s.row}>
+      <Ionicons name="layers-outline" size={15} color={colors.muted} />
+      <T style="caption1" weight="600" styleOverride={{ fontSize: 12.5 }}>{total === 1 ? 'Queued message' : `${total} queued messages`}</T>
+      <View style={{ flex: 1 }}><T style="caption1" color="secondary" numberOfLines={1} styleOverride={{ fontSize: 12.5 }}>{summary}</T></View>
+      <Ionicons name={open ? 'chevron-down' : 'chevron-up'} size={13} color={colors.tertiary} />
+    </Pressable>
+    {open ? <View style={{ paddingHorizontal: 10, paddingBottom: 8, gap: 6 }}>
+      {[...steering.map(q => ({ q, steer: true })), ...queued.map(q => ({ q, steer: false }))].map(({ q, steer }) => <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: colors.dark ? '#ffffff0a' : '#0000000a', opacity: busy === q.id ? 0.5 : 1 }}>
+        <Ionicons name={steer ? 'navigate-outline' : 'time-outline'} size={13} color={steer ? colors.primary : colors.tertiary} />
+        <View style={{ flex: 1 }}>
+          <T style="caption1" numberOfLines={2} styleOverride={{ fontSize: 12.5 }}>{q.text}</T>
+          {steer ? <T style="caption2" color={colors.primary}>Steering · delivered at the next step</T> : null}
+        </View>
+        {steer ? null : <QueueAction icon="navigate-outline" label="Steer now" onPress={() => void act(q.id, { kind: 'steer' })} disabled={!!busy} />}
+        {steer || !q.editable ? null : <QueueAction icon="create-outline" label="Edit" onPress={() => void edit(q)} disabled={!!busy} />}
+        {steer ? null : <QueueAction icon="trash-outline" label="Remove" danger onPress={() => void remove(q)} disabled={!!busy} />}
+      </View>)}
+      {error ? <T style="caption2" color="danger">{error}</T> : null}
+    </View> : null}
+  </Shell>;
+}
+
+function QueueAction({ icon, label, onPress, disabled, danger }: { icon: IconName; label: string; onPress: () => void; disabled?: boolean; danger?: boolean }) {
+  const { colors } = useApp();
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
+    <Ionicons name={icon} size={16} color={danger ? colors.danger : colors.muted} />
+  </Pressable>;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

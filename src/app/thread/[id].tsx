@@ -131,7 +131,7 @@ export default function Thread() {
       { label: 'Copy Text', icon: 'copy-outline', onPress: () => { void Clipboard.setStringAsync(row.text); } },
     ] });
   }, [menu, dialog, client, id, session, running, refresh, harnessUrl, records]);
-  const send = async () => {
+  const send = async (mode: 'queue' | 'steer' = 'queue') => {
     if (!client || !draft.trim() || busy) return; setBusy(true); setError(''); const content = draft.trim();
     try {
       // Commands have a separate strict write path; unregistered slash names remain prompts (skills).
@@ -139,7 +139,7 @@ export default function Thread() {
       const commands = name ? await client.call('commands/list', { agentId: id }) : null;
       const catalog = Array.isArray(commands) ? commands : commands?.commands ?? [];
       if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client.call('commands/execute', { agentId: id, line: content, submittedAttachments: [] });
-      else await client.request('session/prompt', { requestId: randomUUID(), sessionId: id, mode: 'queue', content: [{ type: 'text', text: content }], clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      else await client.request('session/prompt', { requestId: randomUUID(), sessionId: id, mode, content: [{ type: 'text', text: content }], clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
       setDraft(''); setRunning(true); scrollToBottom();
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
@@ -224,7 +224,7 @@ export default function Thread() {
       <ErrorNotice message={error} />
       <GlassTargetProvider value={target}>
         <ComposerContext sessionId={id} values={(session?.projections?.values as Record<string, any>) ?? {}} />
-        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={() => void send()} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { notify.markStoppedByMe(id); void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }}  />}
+        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { notify.markStoppedByMe(id); void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }}  />}
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>

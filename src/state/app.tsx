@@ -38,7 +38,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const task = (async () => {
       const [result, workspace] = await Promise.all([c.call('session/list', { _request: {} }), c.call('workspace/list', {}).catch(() => null)]);
       if (current.current !== c) return;
-      catalog.current = { sessions: result.items ?? [], workspaces: workspace?.items ?? catalog.current.workspaces };
+      // Keep live projection values (inbox, todos, goal, …) that arrived over session/control: list
+      // items only carry partial hints, so a plain replace would drop the queue and other live state.
+      const prev = new Map(catalog.current.sessions.map(x => [x.sessionId, x] as const));
+      const items: Session[] = (result.items ?? []).map((x: Session) => {
+        const old = prev.get(x.sessionId)?.projections?.values;
+        return old ? { ...x, projections: { ...x.projections, values: { ...x.projections?.values, ...old } } } : x;
+      });
+      catalog.current = { sessions: items, workspaces: workspace?.items ?? catalog.current.workspaces };
       setSessions(catalog.current.sessions); setWorkspaces(catalog.current.workspaces);
       await writeCatalog({ url: c.connection.url, ...catalog.current, savedAt: Date.now() }, epoch);
     })();
