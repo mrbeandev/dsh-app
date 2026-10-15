@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Platform, useColorScheme } from 'react-native';
+import { AppState as RNAppState, Platform, useColorScheme } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { HarnessClient } from '../lib/harness';
 import { Connection, Frame, Session } from '../lib/protocol';
@@ -12,7 +12,7 @@ type ThemeMode = 'system' | 'light' | 'dark';
 const light = { dark: false, bg: '#edf1f5', card: '#ffffff', grouped: '#ffffff8a', text: '#202936', muted: '#586677', tertiary: '#58667799', border: '#29426026', separator: '#29426026', primary: '#1c65b9', bubble: '#ffffff8a', danger: '#c62828', success: '#2e7d32', live: '#1c65b9', glass: '#fafbfcf2', glassEdge: '#fffffff2', fill: '#2942601a' };
 const dark = { dark: true, bg: '#0e0f11', card: '#1c1c1f', grouped: '#2e2e3175', text: '#edf0f6', muted: '#aeb6c5', tertiary: '#aeb6c580', border: '#d3dff426', separator: '#d3dff426', primary: '#89baff', bubble: '#2e2e3175', danger: '#ff8a80', success: '#81c995', live: '#89baff', glass: '#2c2c2ef0', glassEdge: '#e0ebff29', fill: '#2e2e3175' };
 export type Colors = typeof light;
-type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
+type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
 const credentials = { read: async () => Platform.OS === 'web' ? null : SecureStore.getItemAsync('dsh.connection'), save: async (c: Connection) => { if (Platform.OS !== 'web') await SecureStore.setItemAsync('dsh.connection', JSON.stringify(c)); }, clear: async () => { if (Platform.OS !== 'web') await SecureStore.deleteItemAsync('dsh.connection'); } };
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -20,6 +20,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Live running/idle transitions straight from the Harness event, before any list refresh can hide them.
   const statusListeners = useRef(new Set<(id: string, running: boolean) => void>());
   const onSessionStatus = useCallback((fn: (id: string, running: boolean) => void) => { statusListeners.current.add(fn); return () => { statusListeners.current.delete(fn); }; }, []);
+  // Last time anything arrived from the Harness (live frame or RPC). A ref, read by the header's ticker,
+  // so busy streams don't re-render the whole app.
+  const lastSyncAt = useRef(0);
+  const lastSync = useCallback(() => lastSyncAt.current, []);
   const [sessions, setSessions] = useState<Session[]>([]); const [workspaces, setWorkspaces] = useState<Frame[]>([]);
   const [archived, setArchived] = useState<string[]>([]); const [pinned, setPinned] = useState<string[]>([]);
   const [status, setStatus] = useState('disconnected'); const [savedUrl, setSavedUrl] = useState(''); const [loading, setLoading] = useState(true);
@@ -46,6 +50,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPending([]); setClient(next); setSavedUrl(next.connection.url); setStatus('connecting');
     const cached = await readCatalog(next.connection.url).catch(() => null);
     if (cached) { catalog.current = { sessions: cached.sessions.map(s => ({ ...s, running: false })), workspaces: cached.workspaces }; setSessions(catalog.current.sessions); setWorkspaces(cached.workspaces); }
+    next.onActivity = () => { if (current.current === next) lastSyncAt.current = Date.now(); };
     next.onStatus = value => { if (current.current !== next) return; setStatus(value); if (value !== 'connected') { catalog.current.sessions = catalog.current.sessions.map(s => ({ ...s, running: false })); setSessions(catalog.current.sessions); } };
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleRefresh = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { if (current.current === next) void refresh().catch(() => {}); }, 250); };
@@ -76,6 +81,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     next.connectStreams(); await refresh();
   }, [refresh, persist]);
   const disconnect = async () => { current.current?.disconnect(); current.current = null; setClient(null); setSessions([]); setWorkspaces([]); setArchived([]); setPinned([]); setPending([]); setStatus('disconnected'); await credentials.clear(); };
+  /** Sync now: reconnect the live socket if it dropped, then reload threads and workspaces. */
+  const resync = useCallback(async () => {
+    const c = current.current; if (!c) return;
+    c.reconnectNow();
+    await refresh();
+  }, [refresh]);
+  // Light heartbeat while the app is open: re-check every 30 s if nothing arrived meanwhile, so the
+  // "synced … ago" time stays honest and a silently dropped connection is noticed.
+  useEffect(() => {
+    const tick = () => {
+      if (RNAppState.currentState !== 'active' || !current.current) return;
+      if (Date.now() - lastSyncAt.current >= 30_000) void resync().catch(() => {});
+    };
+    const t = setInterval(tick, 10_000);
+    const sub = RNAppState.addEventListener('change', s => { if (s === 'active') tick(); });
+    return () => { clearInterval(t); sub.remove(); };
+  }, [resync]);
   const refreshWorkspace = async (ids: string[]) => { if (!current.current) throw new Error('Connect Harness to refresh this workspace.'); await clearWorkspaceHistory(current.current.connection.url, ids); await refresh(); };
   useEffect(() => { let active = true; void credentials.read().then(async value => {
     if (!active || !value) return; const c = JSON.parse(value); setSavedUrl(c.url);
@@ -83,6 +105,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (active && cached) { catalog.current = { sessions: cached.sessions.map(s => ({ ...s, running: false })), workspaces: cached.workspaces }; setSessions(catalog.current.sessions); setWorkspaces(cached.workspaces); setLoading(false); setStatus('cached'); }
     if (active) await connect(c);
   }).catch(() => setStatus('offline')).finally(() => { if (active) setLoading(false); }); return () => { active = false; current.current?.disconnect(); }; }, [connect]);
-  return <Context.Provider value={{ onSessionStatus, client, sessions, workspaces, archived, pinned, status, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ onSessionStatus, lastSync, resync, client, sessions, workspaces, archived, pinned, status, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
 }
 export function useApp() { const value = useContext(Context); if (!value) throw new Error('AppProvider missing'); return value; }

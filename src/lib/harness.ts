@@ -17,6 +17,11 @@ export class HarnessClient {
   private attempts = 0;
   clientId = '';
   onStatus: (status: 'connected' | 'reconnecting' | 'disconnected') => void = () => {};
+  /** Called whenever anything arrives from the Harness (stream frame or successful RPC). */
+  onActivity: () => void = () => {};
+  get socketOpen() { return this.socket?.readyState === WebSocket.OPEN; }
+  /** Skip the back-off and reconnect the live socket now (no-op while it is open). */
+  reconnectNow() { if (this.closed || this.socketOpen) return; clearTimeout(this.retry); this.attempts = 0; try { this.socket?.close(); } catch { /* already closed */ } this.connectStreams(); }
   constructor(connection: Connection) { this.connection = normalizeConnection(connection); }
   async authenticate() {
     const url = new URL(endpoint(this.connection.url, '/'));
@@ -60,7 +65,7 @@ export class HarnessClient {
     if (!type.startsWith('multipart/')) {
       const data = JSON.parse(new TextDecoder().decode(body));
       if (!data.result?.ok) throw new HarnessError(data.result?.error?.code ?? 'unknown', data.result?.error?.message ?? 'Harness request failed.');
-      return data.result.value;
+      this.onActivity(); return data.result.value;
     }
     const { metadata, parts } = parseMultipart(body, type);
     if (metadata?.rpcId !== rpcId) throw new HarnessError('protocol', 'Unexpected Harness response.');
@@ -78,7 +83,7 @@ export class HarnessClient {
     };
     this.socket!.onmessage = (message) => {
       try {
-        const frame = JSON.parse(String(message.data));
+        const frame = JSON.parse(String(message.data)); this.onActivity();
         if (frame.type === 'item') this.streams.get(frame.streamId)?.receive(frame.value);
         if (frame.type === 'error') this.streams.get(frame.streamId)?.receive({ type: 'stream-error', error: frame.error });
       } catch { /* Ignore malformed frames, never execute server content. */ }

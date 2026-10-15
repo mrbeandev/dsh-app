@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 import { SkeletonRows } from '../components/Loader';
 import { UpdateBanner } from '../components/UpdateCard';
+import { SyncStatus } from '../components/SyncStatus';
 import { SubagentBranches, SubagentToggle } from '../components/SubagentTree';
 import { childIndex, subagentTree } from '../lib/subagents';
 import { Ionicons } from '@expo/vector-icons';
@@ -85,11 +86,14 @@ export default function Home() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} tintColor={colors.muted} progressViewOffset={60} />}
         contentContainerStyle={{ paddingTop: 60, paddingBottom: insets.bottom + 90, flexGrow: 1 }}
         ListHeaderComponent={<><UpdateBanner /><View style={{ paddingHorizontal: 12, gap: 10, paddingBottom: 4 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Harness: ${statusText}. Change connection`} onPress={() => router.push('/connect')} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 6 }}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: live ? colors.live : colors.tertiary }} />
-            <T style="footnote" color="secondary" numberOfLines={1}>{statusText}</T>
-            <Ionicons name="chevron-down" size={11} color={colors.muted} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Harness: ${statusText}. Change connection`} onPress={() => router.push('/connect')} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, paddingHorizontal: 6 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: live ? colors.live : colors.tertiary }} />
+              <T style="footnote" color="secondary" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{statusText}</T>
+              <Ionicons name="chevron-down" size={11} color={colors.muted} />
+            </Pressable>
+            <SyncStatus />
+          </View>
           <SearchField value={query} onChangeText={setQuery} placeholder="Search workspaces and threads" />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             {(['All', 'Working'] as const).map(x => { const on = filter === x; return <Pressable key={x} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setFilter(x)} hitSlop={slop(30)} style={({ pressed }) => ({ height: 30, paddingHorizontal: 12, borderRadius: 15, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: on ? colors.fill : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? colors.glassEdge : 'transparent', opacity: pressed ? 0.6 : 1 })}><T style="footnote" weight="500">{x}</T>{x === 'Working' && workingCount ? <T style="caption1" color="secondary">{workingCount}</T> : null}</Pressable>; })}
