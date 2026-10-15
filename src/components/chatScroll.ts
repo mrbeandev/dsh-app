@@ -6,5 +6,9 @@ import { createContext } from 'react';
  * amount each frame so the header stays where it was tapped and the content opens downward.
  * Null outside the chat list (rows then just grow normally).
  */
-export type ChatScroll = { offset: () => number; scrollTo: (y: number) => void };
+export type ChatScroll = {
+  offset: () => number; scrollTo: (y: number) => void;
+  /** Pause the list's own anchoring (maintainVisibleContentPosition) while a row animates. */
+  holdAnchor: (on: boolean) => void;
+};
 export const ChatScrollContext = createContext<ChatScroll | null>(null);

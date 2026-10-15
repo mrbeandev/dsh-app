@@ -41,6 +41,9 @@ function Collapsible({ open, style, children }: { open: boolean; style?: StylePr
     if (!mounted || (open && !target)) return; // opening waits for the first measurement
     const from = shown.current, to = open ? target : 0;
     const startOffset = scroll ? scroll.offset() : 0;
+    // While this row animates, the list's own anchoring must not move the view: it anchors on the
+    // newest visible row, sees this row grow, and jumps — fighting the compensation below.
+    scroll?.holdAnchor(true);
     const duration = reduce.current ? 0 : Math.min(320, 170 + Math.abs(to - from) / 5);
     const ease = Easing.out(Easing.cubic);
     const t0 = Date.now(); let frame = 0; let alive = true;
@@ -51,10 +54,11 @@ function Collapsible({ open, style, children }: { open: boolean; style?: StylePr
       shown.current = h; height.setValue(h);
       if (scroll) scroll.scrollTo(Math.max(0, startOffset + (h - from)));
       if (k < 1) { frame = requestAnimationFrame(step); return; }
+      setTimeout(() => scroll?.holdAnchor(false), 150);
       if (open) setSettled(true); else { setMounted(false); setTarget(0); }
     };
     frame = requestAnimationFrame(step);
-    return () => { alive = false; cancelAnimationFrame(frame); };
+    return () => { alive = false; cancelAnimationFrame(frame); scroll?.holdAnchor(false); };
   }, [open, target, mounted, height, scroll]);
 
   if (!mounted) return null;

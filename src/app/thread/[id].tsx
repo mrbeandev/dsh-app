@@ -34,6 +34,9 @@ import { liteEvent } from '../../lib/lite';
 import { coverage, eventsBetween, putEvents } from '../../lib/eventStore';
 import { backfill, turnEvents } from '../../lib/historySync';
 import { StepDetailContext } from '../../components/stepDetail';
+
+/** List anchoring (keeps your place as new messages arrive); paused while a row expands. */
+const MVCP = { minIndexForVisible: 0, autoscrollToTopThreshold: 80 } as const;
 export default function Thread() {
   const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status } = useApp();
   const harnessUrl = harness ?? client?.connection.url ?? savedUrl;
@@ -41,7 +44,12 @@ export default function Thread() {
   const [historyState, setHistoryState] = useState<'loading' | 'cached' | 'live'>('loading');
   const history = useRef<CachedHistory>({ records: [], cursor: -1, hasMore: false, savedAt: 0 });
   const scrollY = useRef(0);
-  const chatScroll = useMemo(() => ({ offset: () => scrollY.current, scrollTo: (y: number) => { scrollY.current = y; list.current?.scrollToOffset({ offset: y, animated: false }); } }), []);
+  const [anchorHolds, setAnchorHolds] = useState(0);
+  const chatScroll = useMemo(() => ({
+    offset: () => scrollY.current,
+    scrollTo: (y: number) => { scrollY.current = y; list.current?.scrollToOffset({ offset: y, animated: false }); },
+    holdAnchor: (on: boolean) => setAnchorHolds(n => Math.max(0, n + (on ? 1 : -1))),
+  }), []);
   const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false);
   const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState(() => takePendingDraft(id) ?? '');
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
@@ -251,7 +259,7 @@ export default function Thread() {
         : !rows.length && !working ? <View style={{ flex: 1, justifyContent: 'center', paddingTop: 62 }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>
         : <Animated.View style={{ flex: 1, opacity: fade }}><ChatScrollContext.Provider value={chatScroll}><StepDetailContext.Provider value={steps}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
           // Inverted: the footer renders at the visual bottom (live text, pending requests), the header at the top.
-          maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }}
+          maintainVisibleContentPosition={anchorHolds ? undefined : MVCP}
           initialNumToRender={14} maxToRenderPerBatch={12} windowSize={11} removeClippedSubviews={Platform.OS === 'android'}
           onScrollBeginDrag={() => { userScrolled.current = true; }}
           onScroll={e => { const y = e.nativeEvent.contentOffset.y; scrollY.current = y; if (!userScrolled.current) return; atBottom.current = y < 100; setJumpVisible(y > 300); }} scrollEventThrottle={16}
