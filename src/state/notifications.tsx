@@ -69,6 +69,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     void SecureStore.getItemAsync(PREFS).then(v => { if (v) setPrefs({ ...DEFAULTS, ...JSON.parse(v) }); }).catch(() => {});
     void ensureChannels().catch(() => {});
+    if (Platform.OS === 'web') return () => {};
     void Notifications.getPermissionsAsync().then(p => setPermission(p.granted ? 'granted' : p.canAskAgain ? 'undetermined' : 'denied')).catch(() => {});
     const app = AppState.addEventListener('change', s => { foreground.current = s === 'active'; });
     // Tapping a notification opens its thread.
@@ -76,7 +77,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       const id = r?.notification.request.content.data?.sessionId;
       if (typeof id === 'string' && id) router.push({ pathname: '/thread/[id]', params: { id } });
     };
-    open(Notifications.getLastNotificationResponse());
+    try { open(Notifications.getLastNotificationResponse()); } catch { /* not available */ }
     const tap = Notifications.addNotificationResponseReceivedListener(open);
     return () => { app.remove(); tap.remove(); };
   }, []);

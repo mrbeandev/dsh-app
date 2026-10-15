@@ -71,43 +71,33 @@ function QueueDock({ sessionId, queued, steering }: { sessionId: string; queued:
   };
   const total = queued.length + steering.length;
   const summary = [queued.length ? `${queued.length} queued` : '', steering.length ? `${steering.length} steering` : ''].filter(Boolean).join(' · ');
+  // Web UI QueueDock layout: header "N queued messages ⌄", then one line per message with
+  // Edit · Delete · ↑ (steer) on the right.
   return <Shell>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${summary}. ${open ? 'Collapse' : 'Expand'}`} onPress={() => setOpen(o => !o)} style={s.row}>
-      <Ionicons name="layers-outline" size={15} color={colors.muted} />
-      <T style="caption1" weight="600" styleOverride={{ fontSize: 12.5 }}>{total === 1 ? 'Queued message' : `${total} queued messages`}</T>
-      <View style={{ flex: 1 }}><T style="caption1" color="secondary" numberOfLines={1} styleOverride={{ fontSize: 12.5 }}>{summary}</T></View>
+      <Ionicons name="chatbox-ellipses-outline" size={15} color={colors.muted} />
+      <View style={{ flex: 1 }}><T style="caption1" weight="600" numberOfLines={1} styleOverride={{ fontSize: 12.5 }}>{total === 1 ? '1 queued message' : `${total} queued messages`}{steering.length ? <T style="caption1" color={colors.primary} styleOverride={{ fontSize: 12.5 }}>{`  · ${steering.length} steering`}</T> : null}</T></View>
       <Ionicons name={open ? 'chevron-down' : 'chevron-up'} size={13} color={colors.tertiary} />
     </Pressable>
-    {open ? <View style={{ paddingHorizontal: 10, paddingBottom: 8, gap: 6 }}>
-      {[...steering.map(q => ({ q, steer: true })), ...queued.map(q => ({ q, steer: false }))].map(({ q, steer }) => <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: colors.dark ? '#ffffff0a' : '#0000000a', opacity: busy === q.id ? 0.5 : 1 }}>
-        <Ionicons name={steer ? 'arrow-redo' : 'time-outline'} size={13} color={steer ? colors.primary : colors.tertiary} />
-        <View style={{ flex: 1 }}>
-          <T style="caption1" numberOfLines={2} styleOverride={{ fontSize: 12.5 }}>{q.text}</T>
-          {steer ? <T style="caption2" color={colors.primary}>Steering · delivered at the next step</T> : null}
-        </View>
-        {steer || !q.editable ? null : <QueueAction icon="create-outline" label="Edit" onPress={() => void edit(q)} disabled={!!busy} />}
-        {steer ? null : <QueueAction icon="trash-outline" label="Remove" danger onPress={() => void remove(q)} disabled={!!busy} />}
-        {/* Rightmost: steer this message into the running turn (delivered at the agent's next step). */}
-        {steer ? null : <SteerButton onPress={() => void act(q.id, { kind: 'steer' })} disabled={!!busy} />}
+    {open ? <View>
+      {[...steering.map(q => ({ q, steer: true })), ...queued.map(q => ({ q, steer: false }))].map(({ q, steer }) => <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingLeft: 12, paddingRight: 4, minHeight: 38, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, opacity: busy === q.id ? 0.45 : 1 }}>
+        {steer ? <Ionicons name="arrow-up" size={13} color={colors.primary} style={{ marginRight: 4 }} /> : null}
+        <View style={{ flex: 1 }}><T style="caption1" numberOfLines={1} color={steer ? colors.primary : undefined} styleOverride={{ fontSize: 13 }}>{q.text}</T></View>
+        {steer ? <T style="caption2" color={colors.primary} styleOverride={{ marginRight: 8 }}>Steering</T> : <>
+          {q.editable ? <QueueAction icon="create-outline" label="Edit" onPress={() => void edit(q)} disabled={!!busy} /> : null}
+          <QueueAction icon="trash-outline" label="Delete" onPress={() => void remove(q)} disabled={!!busy} />
+          <QueueAction icon="arrow-up" label="Steer now" hint="Deliver this message to the agent at its next step instead of after this turn" onPress={() => void act(q.id, { kind: 'steer' })} disabled={!!busy} />
+        </>}
       </View>)}
-      {error ? <T style="caption2" color="danger">{error}</T> : null}
+      {error ? <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}><T style="caption2" color="danger">{error}</T></View> : null}
     </View> : null}
   </Shell>;
 }
 
-/** Filled accent arrow, so "send this into the current turn now" stands out from Edit/Remove. */
-function SteerButton({ onPress, disabled }: { onPress: () => void; disabled?: boolean }) {
+function QueueAction({ icon, label, hint, onPress, disabled, danger }: { icon: IconName; label: string; hint?: string; onPress: () => void; disabled?: boolean; danger?: boolean }) {
   const { colors } = useApp();
-  return <Pressable accessibilityRole="button" accessibilityLabel="Steer now" accessibilityHint="Deliver this message to the agent at its next step instead of after this turn" disabled={disabled} onPress={onPress} hitSlop={8}
-    style={({ pressed }) => ({ width: 30, height: 30, borderRadius: 15, marginLeft: 2, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>
-    <Ionicons name="arrow-redo" size={15} color={colors.bg} />
-  </Pressable>;
-}
-
-function QueueAction({ icon, label, onPress, disabled, danger }: { icon: IconName; label: string; onPress: () => void; disabled?: boolean; danger?: boolean }) {
-  const { colors } = useApp();
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}>
-    <Ionicons name={icon} size={16} color={danger ? colors.danger : colors.muted} />
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} disabled={disabled} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : pressed ? 0.5 : 1 })}>
+    <Ionicons name={icon} size={17} color={danger ? colors.danger : colors.muted} />
   </Pressable>;
 }
 
