@@ -24,6 +24,7 @@ import { usePinch } from '../../lib/usePinch';
 import { historyAddress, stableAddress, subagentLabel } from '../../lib/subagents';
 import { useNotifications } from '../../state/notifications';
 import { ChatScrollContext } from '../../components/chatScroll';
+import { SwipeBack } from '../../components/SwipeBack';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
@@ -239,7 +240,8 @@ export default function Thread() {
   const workspace = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : undefined;
   const subtitle = [workspace, status === 'connected' ? (working ? 'Working…' : undefined) : 'Offline'].filter(Boolean).join(' · ');
   const toLatest = () => scrollToBottom();
-  return <Screen edges={['top', 'bottom']}>
+  const goBack = useCallback(() => { if (router.canGoBack()) router.back(); else router.replace('/'); }, []);
+  return <SwipeBack onBack={goBack} enabled={!promptsOpen}><Screen edges={['top', 'bottom']}>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <GlassTarget target={target}>
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
@@ -280,5 +282,5 @@ export default function Thread() {
       </View>
     </KeyboardAvoidingView>
     <PromptIndex sessionId={id} outline={outline} visible={promptsOpen} onClose={() => setPromptsOpen(false)} onJump={e => void jumpTo(e)} />
-  </Screen>;
+  </Screen></SwipeBack>;
 }

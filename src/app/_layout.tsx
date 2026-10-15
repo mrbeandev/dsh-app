@@ -17,6 +17,8 @@ function Navigation() {
       <Stack.Screen name="new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
       <Stack.Screen name="workspace-new" options={{ presentation: 'modal' }} />
+      {/* Chat: transparent card so the interactive swipe-back reveals the screen underneath. */}
+      <Stack.Screen name="thread/[id]" options={{ presentation: 'transparentModal', animation: 'slide_from_right', contentStyle: { backgroundColor: 'transparent' } }} />
     </Stack>
   </>;
 }
