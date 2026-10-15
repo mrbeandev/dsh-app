@@ -47,6 +47,7 @@ export class HarnessClient {
     const data = await response.json();
     if (data.type !== 'server-response' || data.rpcId !== rpcId) throw new HarnessError('protocol', 'Unexpected Harness response.');
     if (!data.result?.ok) throw new HarnessError(data.result?.error?.code ?? 'unknown', data.result?.error?.message ?? 'Harness request failed.');
+    this.onActivity();
     return data.result.value;
   }
   request<T = any>(method: string, request: Record<string, unknown>) { return this.call<T>(method, { request }); }
