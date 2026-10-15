@@ -23,6 +23,7 @@ import { outlineOf, seedTimes, type OutlineEntry } from '../../lib/promptIndex';
 import { usePinch } from '../../lib/usePinch';
 import { historyAddress, stableAddress, subagentLabel } from '../../lib/subagents';
 import { useNotifications } from '../../state/notifications';
+import { useUnseen } from '../../state/unseen';
 import { ChatScrollContext } from '../../components/chatScroll';
 import { SwipeBack } from '../../components/SwipeBack';
 import { GestureDetector } from 'react-native-gesture-handler';
@@ -49,7 +50,8 @@ export default function Thread() {
   const { applyProjections } = useApp();
   const session = sessions.find(x => x.sessionId === id);
   const notify = useNotifications();
-  useEffect(() => { notify.setViewing(id); return () => notify.setViewing(undefined); }, [notify, id]);
+  const { setViewing: setSeenViewing } = useUnseen();
+  useEffect(() => { notify.setViewing(id); setSeenViewing(id); return () => { notify.setViewing(undefined); setSeenViewing(undefined); }; }, [notify, setSeenViewing, id]);
   // Subagent threads need the subagent address form; a plain session address is refused for them.
   const parentSession = session?.parentSessionId ? sessions.find(x => x.sessionId === session.parentSessionId) : undefined;
   // Derived subagent info, computed inside one memo so the compiler knows `session` isn't mutated.

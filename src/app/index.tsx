@@ -3,6 +3,7 @@ import { Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-
 import { SkeletonRows } from '../components/Loader';
 import { UpdateBanner } from '../components/UpdateCard';
 import { SyncStatus } from '../components/SyncStatus';
+import { useUnseen } from '../state/unseen';
 import { SubagentBranches, SubagentToggle } from '../components/SubagentTree';
 import { childIndex, subagentTree } from '../lib/subagents';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +35,7 @@ export default function Home() {
   const [subOpen, setSubOpen] = useState<Record<string, boolean>>({});
   const subIndex = useMemo(() => childIndex(sessions), [sessions]);
   const byId = useMemo(() => new Map(sessions.map(x => [x.sessionId, x])), [sessions]);
+  const { unseen } = useUnseen();
   const live = status === 'connected';
   const rows = useMemo(() => sessions.filter(x => isListedSession(x) && !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || (live && x.running))), [sessions, archived, query, filter, live]);
   const groups = useMemo(() => groupWorkspaces(rows, workspaces).filter(g => g.sessions.length || (!query && filter === 'All')).map(g => ({ ...g, sessions: [...g.sessions].sort((a, b) => Number(pinned.includes(b.sessionId)) - Number(pinned.includes(a.sessionId))) })), [rows, workspaces, query, filter, pinned]);
@@ -121,10 +123,11 @@ export default function Home() {
         renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(10, section.more)} more threads in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 19, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(10, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
         renderItem={({ item }) => {
           const active = item.running && live; const attention = pending.some(p => p.agentId === item.sessionId);
+          const finished = !active && !attention && unseen.has(item.sessionId);
           const tree = subagentTree(item, subIndex, byId);
           return <View style={{ marginLeft: 19, paddingLeft: 10, paddingRight: 12, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator }}>
-            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 38, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: attention ? '#ffb74d' : active ? colors.live : 'transparent' }} />
+            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 38, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: attention ? '#ffb74d' : active ? colors.live : finished ? (colors.dark ? '#5ddc8a' : '#1e8e4a') : 'transparent' }} />
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>
               {pinned.includes(item.sessionId) ? <Ionicons name="pin" size={11} color={colors.muted} /> : null}
               <SubagentToggle nodes={tree} open={!!subOpen[item.sessionId]} onToggle={() => setSubOpen(o => ({ ...o, [item.sessionId]: !o[item.sessionId] }))} />
