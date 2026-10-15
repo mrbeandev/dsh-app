@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { StatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from '../state/app';
 import { ActionMenuProvider } from '../components/ActionMenu';
@@ -23,4 +24,4 @@ function Navigation() {
     </Stack>
   </>;
 }
-export default function RootLayout() { return <GestureHandlerRootView style={{ flex: 1 }}><AppProvider><UpdateProvider><NotificationProvider><UnseenProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></UnseenProvider></NotificationProvider></UpdateProvider></AppProvider></GestureHandlerRootView>; }
+export default function RootLayout() { return <GestureHandlerRootView style={{ flex: 1 }}><KeyboardProvider><AppProvider><UpdateProvider><NotificationProvider><UnseenProvider><DialogProvider><ActionMenuProvider><Navigation /></ActionMenuProvider></DialogProvider></UnseenProvider></NotificationProvider></UpdateProvider></AppProvider></KeyboardProvider></GestureHandlerRootView>; }

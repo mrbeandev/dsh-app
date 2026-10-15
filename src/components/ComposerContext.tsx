@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { randomUUID } from 'expo-crypto';
 import { LayoutAnimation, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../state/app';
@@ -8,7 +9,7 @@ import { errorMessage } from '../lib/harness';
 
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
-export type QueueItem = { id: string; text: string; editable: boolean };
+export type QueueItem = { id: string; text: string; editable: boolean; content: any[] };
 
 /** One inbox message (wire JSON) → its id and visible text. Non-text parts (images) block editing. */
 export function toQueueItem(m: any): QueueItem | null {
@@ -18,7 +19,7 @@ export function toQueueItem(m: any): QueueItem | null {
   const text = blocks.filter(b => b?.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
   const editable = blocks.length > 0 && blocks.every(b => b?.type === 'text');
   const others = blocks.length - blocks.filter(b => b?.type === 'text').length;
-  return { id, text: text || (others ? `${others} attachment${others === 1 ? '' : 's'}` : '(empty)'), editable };
+  return { id, text: text || (others ? `${others} attachment${others === 1 ? '' : 's'}` : '(empty)'), editable, content: blocks };
 }
 type Todo = { content?: string; status?: string; activeForm?: string };
 type GoalProjection = { goal?: { id: string; revision: number; objective: string; phase: 'active' | 'paused' | 'blocked' | 'complete'; blockedReason?: { message?: string } }; roundsStarted?: number } | null;
@@ -28,7 +29,7 @@ type GoalProjection = { goal?: { id: string; revision: number; objective: string
  * Each card is one slim row above the composer; Todo expands into a checklist (accordion).
  * Driven by `session/projections`; goal actions use the official goals/* RPCs (CAS by revision).
  */
-export function ComposerContext({ sessionId, values }: { sessionId: string; values: Record<string, any> }) {
+export function ComposerContext({ sessionId, values, running = true }: { sessionId: string; values: Record<string, any>; running?: boolean }) {
   const todos: Todo[] = Array.isArray(values.todos?.items) ? values.todos.items : Array.isArray(values.todos) ? values.todos : [];
   const goal = (values.goal as GoalProjection)?.goal;
   // Harness inbox: next-turn = queued (waits for the turn to end); next-step = steering (delivered at
@@ -44,10 +45,21 @@ export function ComposerContext({ sessionId, values }: { sessionId: string; valu
   return <View style={{ gap: 4, paddingHorizontal: 10, paddingBottom: 4 }}>
     {showTodos ? <TodoCard todos={todos} /> : null}
     {showGoal ? <GoalCard sessionId={sessionId} goal={goal!} rounds={(values.goal as GoalProjection)?.roundsStarted ?? 0} /> : null}
-    {queue.length ? <QueueDock sessionId={sessionId} queued={queued} steering={steering} /> : null}
+    {queue.length ? <QueueDock sessionId={sessionId} queued={queued} steering={steering} running={running} /> : null}
     {plan?.active ? <Card icon="map-outline" label="Plan mode" text={plan.pending ? 'A plan is waiting for your review' : 'The agent will propose a plan before acting'} /> : null}
     {questions ? <Card icon="help-circle-outline" label="Question" text={`The agent is waiting for ${questions === 1 ? 'your answer' : `${questions} answers`}`} tint="warning" /> : null}
   </View>;
+}
+
+/**
+ * Run a queued message now while the agent is idle. The Harness keeps queued messages after Stop
+ * (session/cancel keeps the inbox) but doesn't start a turn for them; prompting the head message
+ * wakes the agent, and the Harness then runs the remaining queued messages as the following turns.
+ * Removed first so it can't run twice; if the prompt fails the caller gets the text back.
+ */
+export async function runQueuedNow(client: { request: (m: string, p: any) => Promise<any> }, sessionId: string, item: { id: string; content: any[] }) {
+  await client.request('session/updateQueue', { sessionId, itemId: item.id, action: { kind: 'remove' } });
+  await client.request('session/prompt', { requestId: randomUUID(), sessionId, mode: 'queue', content: item.content, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
 }
 
 /**
@@ -55,12 +67,16 @@ export function ComposerContext({ sessionId, values }: { sessionId: string; valu
  * steered (deliver at the agent's next step instead of after the turn), edited, or removed —
  * all through the official `session/updateQueue` RPC, so the web UI sees the same queue.
  */
-function QueueDock({ sessionId, queued, steering }: { sessionId: string; queued: QueueItem[]; steering: QueueItem[] }) {
+function QueueDock({ sessionId, queued, steering, running }: { sessionId: string; queued: QueueItem[]; steering: QueueItem[]; running: boolean }) {
   const { client, colors } = useApp(); const dialog = useDialog();
   const [open, setOpen] = useState(true); const [busy, setBusy] = useState(''); const [error, setError] = useState('');
   const act = async (itemId: string, action: Record<string, unknown>) => {
     if (!client || busy) return; setBusy(itemId); setError('');
     try { await client.request('session/updateQueue', { sessionId, itemId, action }); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
+  };
+  const sendNow = async (q: QueueItem) => {
+    if (!client || busy) return; setBusy(q.id); setError('');
+    try { await runQueuedNow(client, sessionId, q); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
   };
   const edit = async (q: QueueItem) => {
     const text = await dialog.prompt({ title: 'Edit Queued Message', initial: q.text, placeholder: 'Message', confirm: 'Save', multiline: true });
@@ -86,7 +102,8 @@ function QueueDock({ sessionId, queued, steering }: { sessionId: string; queued:
         {steer ? <T style="caption2" color={colors.primary} styleOverride={{ marginRight: 8 }}>Steering</T> : <>
           {q.editable ? <QueueAction icon="create-outline" label="Edit" onPress={() => void edit(q)} disabled={!!busy} /> : null}
           <QueueAction icon="trash-outline" label="Delete" onPress={() => void remove(q)} disabled={!!busy} />
-          <QueueAction icon="arrow-up" label="Steer now" hint="Deliver this message to the agent at its next step instead of after this turn" onPress={() => void act(q.id, { kind: 'steer' })} disabled={!!busy} />
+          {running ? <QueueAction icon="arrow-up" label="Steer now" hint="Deliver this message to the agent at its next step instead of after this turn" onPress={() => void act(q.id, { kind: 'steer' })} disabled={!!busy} />
+            : <QueueAction icon="arrow-up" label="Send now" hint="The agent is idle: send this message as the next prompt" onPress={() => void sendNow(q)} disabled={!!busy} />}
         </>}
       </View>)}
       {error ? <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}><T style="caption2" color="danger">{error}</T></View> : null}

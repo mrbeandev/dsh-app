@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, FlatList, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
+import { Animated, Easing, FlatList, Platform, Pressable, View } from 'react-native';
+// Frame-by-frame keyboard tracking: the composer follows the keyboard down when it hides, instead of
+// staying mid-screen over a blank area until the window finishes resizing.
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { Glass, GlassTarget, GlassTargetProvider } from '../../components/Glass';
 import { Dots, SkeletonChat } from '../../components/Loader';
 import { useActionMenu } from '../../components/ActionMenu';
-import { ComposerContext } from '../../components/ComposerContext';
+import { ComposerContext, runQueuedNow, toQueueItem } from '../../components/ComposerContext';
 import { useDialog } from '../../components/Dialog';
 import { rewindTo, setPendingDraft, takePendingDraft } from '../../lib/rewind';
 import * as Clipboard from 'expo-clipboard';
@@ -52,7 +55,8 @@ export default function Thread() {
   }), []);
   const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false);
   const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState(() => takePendingDraft(id) ?? '');
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
+  const [sending, setSending] = useState<{ key: string; text: string }[]>([]);
+  const [error, setError] = useState(''); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
   const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
   const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
   const { applyProjections } = useApp();
@@ -161,18 +165,59 @@ export default function Thread() {
       { label: 'Copy Text', icon: 'copy-outline', onPress: () => { void Clipboard.setStringAsync(row.text); } },
     ] });
   }, [menu, dialog, client, id, session, running, refresh, harnessUrl, records]);
+  // Optimistic send (Web UI parity): the draft clears and a "Sending…" bubble appears immediately; on
+  // a slow tunnel the request can take seconds. A failure removes the bubble and restores the draft.
   const send = async (mode: 'queue' | 'steer' = 'queue') => {
-    if (!client || !draft.trim() || busy) return; setBusy(true); setError(''); const content = draft.trim();
+    if (!client || !draft.trim()) return;
+    const content = draft.trim(); const key = randomUUID();
+    setError(''); setDraft(''); setSending(s => [...s, { key, text: content }]); scrollToBottom();
     try {
       // Commands have a separate strict write path; unregistered slash names remain prompts (skills).
       const name = content.match(/^\/(\S+)/)?.[1];
       const commands = name ? await client.call('commands/list', { agentId: id }) : null;
       const catalog = Array.isArray(commands) ? commands : commands?.commands ?? [];
       if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client.call('commands/execute', { agentId: id, line: content, submittedAttachments: [] });
-      else await client.request('session/prompt', { requestId: randomUUID(), sessionId: id, mode, content: [{ type: 'text', text: content }], clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-      setDraft(''); setRunning(true); scrollToBottom();
-    } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
+      else await client.request('session/prompt', { requestId: key, sessionId: id, mode, content: [{ type: 'text', text: content }], clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      setRunning(true); scrollToBottom();
+      // Keep the bubble until the Harness echoes the message (or a queue row shows it), max 8 s.
+      setTimeout(() => setSending(s => s.filter(x => x.key !== key)), 8000);
+    } catch (e) {
+      setSending(s => s.filter(x => x.key !== key));
+      setDraft(d => d.trim() ? d : content);
+      setError(errorMessage(e));
+    }
   };
+  // Drop a Sending… bubble as soon as the Harness has it: the durable user message (or queue row)
+  // carries source.rpcId = our request id.
+  const projectionValues = session?.projections?.values;
+  const echoed = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of records) { const src: any = (e.data as any)?.source ?? (e.data as any)?.message?.source; if (src?.rpcId) ids.add(String(src.rpcId)); }
+    const inbox = (projectionValues as any)?.inbox;
+    for (const m of [...(inbox?.['next-turn'] ?? []), ...(inbox?.['next-step'] ?? [])]) if (m?.source?.rpcId) ids.add(String(m.source.rpcId));
+    return ids;
+  }, [records, projectionValues]);
+  const pendingSends = sending.filter(s => !echoed.has(s.key));
+  // Stop = cancel the running turn. The Harness keeps queued messages (session/cancel keeps the inbox)
+  // but does not start a turn for them, so they'd sit in the queue. Expected behaviour (user): the
+  // next queued message goes in as the next prompt. So after the cancel lands and the agent is idle,
+  // send the head of the queue; the Harness runs the rest of the queue after it.
+  const resumeQueue = useRef(0); // deadline (ms) while waiting to send the next queued message
+  const stopTurn = async () => {
+    if (!client) return;
+    notify.markStoppedByMe(id);
+    try { await client.request('session/cancel', { sessionId: id }); } catch (e) { setError(errorMessage(e)); return; }
+    resumeQueue.current = Date.now() + 15000;
+  };
+  // Once the Harness reports the agent idle (live status), send the head of the queue.
+  const liveRunning = !!session?.running;
+  const queueHead = (((session?.projections?.values as any)?.inbox?.['next-turn'] ?? []) as any[]).map(toQueueItem).find(Boolean) ?? null;
+  useEffect(() => {
+    if (!resumeQueue.current || liveRunning || !client) return;
+    const live = Date.now() < resumeQueue.current; resumeQueue.current = 0;
+    if (!live || !queueHead) return;
+    runQueuedNow(client, id, queueHead).then(() => setRunning(true), e => setError(errorMessage(e)));
+  }, [liveRunning, client, id, queueHead]);
   const loadingOlder = useRef(false); const [olderBusy, setOlderBusy] = useState(false);
   // Load older messages: from the phone's event DB when it already has them (background backfill),
   // otherwise one page from the Harness (stored in full). The screen only keeps lite copies.
@@ -201,8 +246,8 @@ export default function Thread() {
   const outline = useMemo(() => outlineOf(session?.projections?.values as Record<string, any> | undefined), [session?.projections?.values]);
   useEffect(() => { seedTimes(id, records); }, [id, records]);
   const hasOutline = outline.length > 0;
-  const openPrompts = useCallback(() => { if (hasOutline) setPromptsOpen(true); }, [hasOutline]);
-  const closePrompts = useCallback(() => setPromptsOpen(false), []);
+  const openPrompts = useCallback(() => { if (hasOutline) setPromptsOpen(true); }, [hasOutline, setPromptsOpen]);
+  const closePrompts = useCallback(() => setPromptsOpen(false), [setPromptsOpen]);
   const pinch = usePinch({ onPinchIn: openPrompts, onPinchOut: closePrompts });
   const jumpTo = useCallback(async (entry: OutlineEntry) => {
     // Load history back through the turn's turn/start seq if it is not in memory yet.
@@ -252,7 +297,7 @@ export default function Thread() {
   const toLatest = () => scrollToBottom();
   const goBack = useCallback(() => { if (router.canGoBack()) router.back(); else router.replace('/'); }, []);
   return <SwipeBack onBack={goBack} enabled={!promptsOpen}><Screen edges={['top', 'bottom']}>
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <GlassTarget target={target}>
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
         {historyState === 'loading' && !rows.length ? <View style={{ flex: 1, paddingHorizontal: 14, paddingTop: 62 }}><SkeletonChat /></View>
@@ -267,7 +312,7 @@ export default function Thread() {
           onScrollToIndexFailed={info => { list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); setTimeout(() => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.35, animated: true }), 120); }}
           keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 62 }}
-          ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={`${p.clientId}:${p.eventId}`} frame={p} /> : <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
+          ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{pendingSends.map(s => <View key={s.key} style={{ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, opacity: 0.75 }}><T style="caption2" color="secondary">You · Sending…</T><T style="footnote" numberOfLines={6}>{s.text}</T></View>)}{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={`${p.clientId}:${p.eventId}`} frame={p} /> : <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
           ListFooterComponent={hasMore ? <View style={{ alignItems: 'center', paddingVertical: 10 }}>{olderBusy ? <Dots size="sm" /> : <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ height: 30, paddingHorizontal: 14, borderRadius: 15, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="caption1" color="secondary">Load earlier messages</T></Pressable>}</View> : null}
           renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} /></View>; }} /></GestureDetector></StepDetailContext.Provider></ChatScrollContext.Provider></Animated.View>}
         </View></GestureDetector>
@@ -276,8 +321,8 @@ export default function Thread() {
       </GlassTarget>
       <ErrorNotice message={error} />
       <GlassTargetProvider value={target}>
-        <ComposerContext sessionId={id} values={(session?.projections?.values as Record<string, any>) ?? {}} />
-        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={busy} disabled={!client || status !== 'connected'} onStop={() => { notify.markStoppedByMe(id); void client?.request('session/cancel', { sessionId: id }).then(() => setRunning(false)).catch(e => setError(errorMessage(e))); }}  />}
+        <ComposerContext sessionId={id} running={running} values={(session?.projections?.values as Record<string, any>) ?? {}} />
+        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected'} onStop={stopTurn}  />}
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>

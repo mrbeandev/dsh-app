@@ -1,24 +1,43 @@
 import { describe, expect, it, vi } from 'vitest';
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-1' }));
 vi.mock('react-native', () => ({ StyleSheet: { create: (x: unknown) => x, hairlineWidth: 1 }, LayoutAnimation: {} }));
 vi.mock('@expo/vector-icons', () => ({}));
 vi.mock('../state/app', () => ({}));
 vi.mock('./Dialog', () => ({}));
 vi.mock('./ui', () => ({}));
 vi.mock('../lib/harness', () => ({ errorMessage: String }));
-const { toQueueItem } = await import('./ComposerContext');
+const { toQueueItem, runQueuedNow } = await import('./ComposerContext');
 
 describe('inbox queue items (Harness UserMessage wire JSON)', () => {
   it('reads id and text', () => {
     expect(toQueueItem({ id: 'm1', role: 'user', content: [{ type: 'text', text: 'also add tests' }], source: { kind: 'human' } }))
-      .toEqual({ id: 'm1', text: 'also add tests', editable: true });
+      .toMatchObject({ id: 'm1', text: 'also add tests', editable: true });
   });
   it('joins multiple text blocks; images make it non-editable', () => {
     expect(toQueueItem({ id: 'm2', content: [{ type: 'text', text: 'look' }, { type: 'image', attachmentId: 'a' }] }))
-      .toEqual({ id: 'm2', text: 'look', editable: false });
+      .toMatchObject({ id: 'm2', text: 'look', editable: false });
     expect(toQueueItem({ id: 'm3', content: [{ type: 'image' }, { type: 'image' }] })?.text).toBe('2 attachments');
   });
   it('skips malformed entries', () => {
     expect(toQueueItem(null)).toBeNull();
     expect(toQueueItem({ content: [] })).toBeNull();
+  });
+});
+
+describe('runQueuedNow (send a queued message while the agent is idle)', () => {
+  it('removes the queue row, then prompts the same content', async () => {
+    const calls: [string, any][] = [];
+    const client = { request: async (m: string, p: any) => { calls.push([m, p]); return {}; } };
+    const content = [{ type: 'text', text: 'next please' }];
+    await runQueuedNow(client, 's1', { id: 'q1', content });
+    expect(calls.map(c => c[0])).toEqual(['session/updateQueue', 'session/prompt']);
+    expect(calls[0][1]).toEqual({ sessionId: 's1', itemId: 'q1', action: { kind: 'remove' } });
+    expect(calls[1][1]).toMatchObject({ sessionId: 's1', mode: 'queue', content });
+  });
+  it('does not prompt if the item could not be removed (already ran)', async () => {
+    const calls: string[] = [];
+    const client = { request: async (m: string) => { calls.push(m); if (m === 'session/updateQueue') throw new Error('queued item is no longer pending'); return {}; } };
+    await expect(runQueuedNow(client, 's1', { id: 'q1', content: [] })).rejects.toThrow();
+    expect(calls).toEqual(['session/updateQueue']);
   });
 });
