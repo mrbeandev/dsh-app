@@ -41,6 +41,7 @@ export default function Thread() {
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
   const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
   const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
+  const { applyProjections } = useApp();
   const session = sessions.find(x => x.sessionId === id);
   const notify = useNotifications();
   useEffect(() => { notify.setViewing(id); return () => notify.setViewing(undefined); }, [notify, id]);
@@ -68,6 +69,9 @@ export default function Thread() {
       if (frame.type === 'stream-error') { setError(frame.error.message); return; }
       if (frame.type === 'snapshot') {
         receivedLive = true; setHistoryState('live');
+        // The snapshot carries this thread's current projections (queue/inbox, todos, goal…): apply them
+        // so the composer strip is right the moment the chat opens.
+        if (frame.projections?.values) applyProjections(id, frame.projections.values);
         history.current = { records: (frame.records ?? []).filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event), cursor: frame.cursor, hasMore: frame.hasMore, savedAt: Date.now() }; save();
         setRecords((frame.records ?? []).filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event)); setCursor(frame.cursor); setHasMore(frame.hasMore); liveChunks.current.clear(); setLive('');
         const active = frame.assistantStream?.activeAttempt;
@@ -95,7 +99,7 @@ export default function Thread() {
       }
     });
     return () => { active = false; stop(); clearTimeout(saveTimer); if (receivedLive) void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); };
-  }, [client, id, harnessUrl, refresh, address]));
+  }, [client, id, harnessUrl, refresh, address, applyProjections]));
   const rows = useMemo(() => foldTurns(records, buildTranscript(records)), [records]);
   // Inverted list: index 0 renders at the bottom, so the chat opens on the latest message with no scroll jump.
   const data = useMemo(() => [...rows].reverse(), [rows]);

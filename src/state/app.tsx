@@ -3,6 +3,7 @@ import { AppState as RNAppState, Platform, useColorScheme } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { HarnessClient } from '../lib/harness';
 import { Connection, Frame, Session } from '../lib/protocol';
+import { applyBaseline, mergeRefreshed, withValues } from '../lib/projections';
 import { cacheEpoch, readCatalog, writeCatalog, clearWorkspaceHistory } from '../lib/cache';
 type ThemeMode = 'system' | 'light' | 'dark';
 // Apple HIG semantic system colors (iOS light / dark). Glass tones follow the materials guidance:
@@ -12,7 +13,7 @@ type ThemeMode = 'system' | 'light' | 'dark';
 const light = { dark: false, bg: '#edf1f5', card: '#ffffff', grouped: '#ffffff8a', text: '#202936', muted: '#586677', tertiary: '#58667799', border: '#29426026', separator: '#29426026', primary: '#1c65b9', bubble: '#ffffff8a', danger: '#c62828', success: '#2e7d32', live: '#1c65b9', glass: '#fafbfcf2', glassEdge: '#fffffff2', fill: '#2942601a' };
 const dark = { dark: true, bg: '#0e0f11', card: '#1c1c1f', grouped: '#2e2e3175', text: '#edf0f6', muted: '#aeb6c5', tertiary: '#aeb6c580', border: '#d3dff426', separator: '#d3dff426', primary: '#89baff', bubble: '#2e2e3175', danger: '#ff8a80', success: '#81c995', live: '#89baff', glass: '#2c2c2ef0', glassEdge: '#e0ebff29', fill: '#2e2e3175' };
 export type Colors = typeof light;
-type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
+type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
 const credentials = { read: async () => Platform.OS === 'web' ? null : SecureStore.getItemAsync('dsh.connection'), save: async (c: Connection) => { if (Platform.OS !== 'web') await SecureStore.setItemAsync('dsh.connection', JSON.stringify(c)); }, clear: async () => { if (Platform.OS !== 'web') await SecureStore.deleteItemAsync('dsh.connection'); } };
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -40,11 +41,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (current.current !== c) return;
       // Keep live projection values (inbox, todos, goal, …) that arrived over session/control: list
       // items only carry partial hints, so a plain replace would drop the queue and other live state.
-      const prev = new Map(catalog.current.sessions.map(x => [x.sessionId, x] as const));
-      const items: Session[] = (result.items ?? []).map((x: Session) => {
-        const old = prev.get(x.sessionId)?.projections?.values;
-        return old ? { ...x, projections: { ...x.projections, values: { ...x.projections?.values, ...old } } } : x;
-      });
+      const items = mergeRefreshed(catalog.current.sessions, result.items ?? []);
       catalog.current = { sessions: items, workspaces: workspace?.items ?? catalog.current.workspaces };
       setSessions(catalog.current.sessions); setWorkspaces(catalog.current.workspaces);
       await writeCatalog({ url: c.connection.url, ...catalog.current, savedAt: Date.now() }, epoch);
@@ -71,7 +68,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else if (frame.type === 'emit' && /session|workspace/.test(frame.event)) scheduleRefresh();
     });
     next.follow('session/control', {}, frame => {
-      if (frame.type === 'baseline') { catalog.current.sessions = catalog.current.sessions.map(s => ({ ...s, projections: { ...s.projections, values: { ...s.projections?.values, ...frame.value?.projections?.[s.sessionId] } } })); setSessions(catalog.current.sessions); persist(); }
+      // Baseline: { projections: { [sessionId]: { asOfSeq, values } } } — merge the inner `values`.
+      // (Spreading the whole entry put every key under values.values, so the queue never showed.)
+      if (frame.type === 'baseline') { catalog.current.sessions = applyBaseline(catalog.current.sessions, frame.value); setSessions(catalog.current.sessions); persist(); }
       if (frame.type === 'projection') { catalog.current.sessions = catalog.current.sessions.map(s => s.sessionId === frame.sessionId ? { ...s, projections: { ...s.projections, values: { ...s.projections?.values, [frame.key]: frame.value } } } : s); setSessions(catalog.current.sessions); persist(); }
     });
     next.follow('workspace/follow', {}, frame => {
@@ -88,6 +87,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     next.connectStreams(); await refresh();
   }, [refresh, persist]);
   const disconnect = async () => { current.current?.disconnect(); current.current = null; setClient(null); setSessions([]); setWorkspaces([]); setArchived([]); setPinned([]); setPending([]); setStatus('disconnected'); await credentials.clear(); };
+  /** Merge authoritative projection values for one session (e.g. from its follow snapshot). */
+  const applyProjections = useCallback((sessionId: string, values: Record<string, unknown>) => {
+    if (!values || !Object.keys(values).length) return;
+    catalog.current.sessions = catalog.current.sessions.map(s => s.sessionId === sessionId ? withValues(s, values) : s);
+    setSessions(catalog.current.sessions);
+  }, []);
   /** Sync now: reconnect the live socket if it dropped, then reload threads and workspaces. */
   const resync = useCallback(async () => {
     const c = current.current; if (!c) return;
@@ -112,6 +117,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (active && cached) { catalog.current = { sessions: cached.sessions.map(s => ({ ...s, running: false })), workspaces: cached.workspaces }; setSessions(catalog.current.sessions); setWorkspaces(cached.workspaces); setLoading(false); setStatus('cached'); }
     if (active) await connect(c);
   }).catch(() => setStatus('offline')).finally(() => { if (active) setLoading(false); }); return () => { active = false; current.current?.disconnect(); }; }, [connect]);
-  return <Context.Provider value={{ onSessionStatus, lastSync, resync, client, sessions, workspaces, archived, pinned, status, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ onSessionStatus, lastSync, resync, applyProjections, client, sessions, workspaces, archived, pinned, status, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
 }
 export function useApp() { const value = useContext(Context); if (!value) throw new Error('AppProvider missing'); return value; }
