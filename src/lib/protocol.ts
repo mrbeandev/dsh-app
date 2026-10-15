@@ -54,11 +54,11 @@ function reasoningText(value: unknown): string {
  */
 export type TranscriptRow =
   | { id: string; kind: 'user'; text: string; source?: string }
-  | { id: string; kind: 'assistant'; text: string; reasoning?: string; interrupted?: boolean }
-  | { id: string; kind: 'tool'; callId: string; name: string; args: string; result?: string; isError?: boolean; errorReason?: string; pending: boolean; approval?: 'asked' | 'allowed' | 'denied' | 'cancelled' }
-  | { id: string; kind: 'context'; label: string; summary?: string; text: string; icon: ContextIcon }
+  | { id: string; kind: 'assistant'; text: string; reasoning?: string; interrupted?: boolean; lite?: boolean }
+  | { id: string; kind: 'tool'; callId: string; name: string; args: string; result?: string; isError?: boolean; errorReason?: string; pending: boolean; approval?: 'asked' | 'allowed' | 'denied' | 'cancelled'; lite?: boolean; resultSeq?: number }
+  | { id: string; kind: 'context'; label: string; summary?: string; text: string; icon: ContextIcon; lite?: boolean }
   | { id: string; kind: 'compaction'; state: 'running' | 'done' | 'failed'; summary?: string; tokens?: number; error?: string }
-  | { id: string; kind: 'system'; text: string }
+  | { id: string; kind: 'system'; text: string; lite?: boolean; bytes?: number }
   | { id: string; kind: 'failure'; text: string; warning?: boolean }
   | { id: string; kind: 'notice'; label: string; text?: string }
   | { id: string; kind: 'event'; label: string; text: string }
@@ -139,18 +139,20 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
           if (latest) latest.summary ||= text; else rows.push({ id, kind: 'compaction', state: 'done', summary: text });
           break;
         }
-        const row = contextRow(event.seq, source, text); if (row) rows.push(row);
+        const row = contextRow(event.seq, source, text); if (row) rows.push((d as any).__lite && row.kind === 'context' ? { ...row, lite: true } : row);
         break;
       }
       case 'system/message': {
         const text = textContent((d.message as any)?.content);
         // The web chat omits the system prompt; we keep one quiet collapsible row when it changes.
+        if ((d as any).__lite) { rows.push({ id, kind: 'system', text: '', lite: true, bytes: Number((d as any).__lite.bytes) || 0 }); break; }
         if (text && text !== lastSystem) { lastSystem = text; rows.push({ id, kind: 'system', text }); }
         break;
       }
       case 'developer/message': {
         const text = textContent((d.message as any)?.content);
-        if (text) rows.push({ id, kind: 'context', label: 'Session update', text, icon: 'tools' });
+        if ((d as any).__lite) rows.push({ id, kind: 'context', label: 'Session update', text: '', icon: 'tools', lite: true });
+        else if (text) rows.push({ id, kind: 'context', label: 'Session update', text, icon: 'tools' });
         break;
       }
       case 'assistant/message':
@@ -158,7 +160,7 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
         const message = (d.message ?? d.assistantMessage) as any;
         const text = textContent(message?.content ?? d.content);
         const reasoning = reasoningText(message?.content);
-        if (text || reasoning) rows.push({ id, kind: 'assistant', text, reasoning: reasoning || undefined, interrupted: d.interrupted === true });
+        if (text || reasoning) rows.push({ id, kind: 'assistant', text, reasoning: reasoning || undefined, interrupted: d.interrupted === true, lite: !!(d as any).__lite });
         break;
       }
       case 'assistant/attempt': {
@@ -167,7 +169,7 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
         break;
       }
       case 'tool/call': {
-        const row = { id, kind: 'tool' as const, callId: String(d.callId ?? id), name: String(d.name ?? 'tool'), args: String(d.arguments ?? ''), pending: true };
+        const row: Extract<TranscriptRow, { kind: 'tool' }> = { id, kind: 'tool' as const, callId: String(d.callId ?? id), name: String(d.name ?? 'tool'), args: String(d.arguments ?? ''), pending: true, lite: !!(d as any).__lite };
         tools.set(row.callId, row); rows.push(row);
         break;
       }
@@ -177,7 +179,7 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
         const result = textContent(message?.content);
         const err = d.error as any;
         const row = tools.get(callId);
-        if (row) { row.result = result; row.isError = !!message?.isError; row.errorReason = err?.reason; row.pending = false; }
+        if (row) { row.result = result; row.isError = !!message?.isError; row.errorReason = err?.reason; row.pending = false; row.resultSeq = event.seq; if ((d as any).__lite) row.lite = true; }
         else rows.push({ id, kind: 'tool', callId: callId || id, name: 'Tool result', args: '', result, isError: !!message?.isError, errorReason: err?.reason, pending: false });
         break;
       }

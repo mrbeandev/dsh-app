@@ -8,9 +8,8 @@ import { ModelPicker } from '../../components/ModelPicker';
 import { Skeleton } from '../../components/Loader';
 import { errorMessage } from '../../lib/harness';
 import { sessionTitle } from '../../lib/protocol';
-import { readHistory } from '../../lib/cache';
+import { coverage, storeStats } from '../../lib/eventStore';
 import { compact, contextUsage, duration, grouped, sessionStats, tokenUsage } from '../../lib/sessionStats';
-import { relativeTime } from '../../lib/time';
 
 type Values = Record<string, any>;
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -25,7 +24,7 @@ const EVENT_GROUPS: { label: string; match: (t: string) => boolean }[] = [
   { label: 'Compactions', match: t => t === 'compaction/end' },
   { label: 'Turns', match: t => t === 'turn/start' },
 ];
-type JournalSummary = { total: number; first: number; last: number; counts: { label: string; count: number }[]; other: number; savedAt?: number; bytes: number };
+type JournalSummary = { total: number; first: number; last: number; counts: { label: string; count: number }[]; other: number; savedAt?: number; bytes: number; complete?: boolean };
 
 export default function Details() {
   const { id } = useLocalSearchParams<{ id: string }>(); const { client, sessions, refresh, savedUrl, colors } = useApp();
@@ -44,13 +43,14 @@ export default function Details() {
   }, [client, id]);
   useEffect(() => {
     let active = true;
-    void readHistory(client?.connection.url ?? savedUrl, id).then(h => {
-      if (!active || !h) return;
-      // Summarise instead of stringifying thousands of events into one Text (that froze the UI).
-      const types = h.records.map(r => String(r.type));
-      const counts = EVENT_GROUPS.map(g => ({ label: g.label, count: types.filter(g.match).length })).filter(c => c.count);
-      const matched = counts.reduce((a, c) => a + c.count, 0);
-      setJournal({ total: types.length, first: h.records[0]?.seq ?? 0, last: h.records[h.records.length - 1]?.seq ?? 0, counts, other: types.length - matched, savedAt: h.savedAt, bytes: approxBytes(h.records) });
+    // Summarise the phone's per-event store (SQL counts; no events are loaded into memory).
+    const url = client?.connection.url ?? savedUrl;
+    void Promise.all([storeStats(url, id), coverage(url, id)]).then(([st, cov]) => {
+      if (!active || !st.count) return;
+      const count = (match: (t: string) => boolean) => st.types.filter(x => match(x.type)).reduce((n, x) => n + x.n, 0);
+      const counts = EVENT_GROUPS.map(g => ({ label: g.label, count: count(g.match) })).filter(c => c.count);
+      const matched = counts.reduce((n, c) => n + c.count, 0);
+      setJournal({ total: st.count, first: st.first, last: st.last, counts, other: st.count - matched, bytes: st.bytes, complete: !!cov?.complete });
     }).catch(() => {});
     return () => { active = false; };
   }, [client, savedUrl, id]);
@@ -132,7 +132,7 @@ export default function Details() {
       {journal ? <>
         <Row icon="albums-outline" title="Cached events" value={grouped(journal.total)} subtitle={journal.total ? `Event #${journal.first} – #${journal.last}${journal.other ? ` · ${journal.other} bookkeeping` : ''}` : undefined} chevron={false} />
         {journal.counts.map(c => <Row key={c.label} title={c.label} value={grouped(c.count)} chevron={false} />)}
-        <Row icon="archive-outline" title="Cache size" value={`~${compact(journal.bytes)}B`} subtitle={journal.savedAt ? `Saved ${relativeTime(journal.savedAt)} ago` : undefined} chevron={false} />
+        <Row icon="archive-outline" title="Stored on this phone" value={`${compact(journal.bytes)}B`} subtitle={journal.complete ? 'Whole conversation' : 'Older history still downloading'} chevron={false} />
       </> : <Row icon="albums-outline" title="Cached events" value="None yet" subtitle="Open the thread to cache it on this device." chevron={false} />}
       <Row icon="finger-print-outline" title="Thread ID" subtitle={id} chevron={false} copy={id} />
       {client ? <Row icon="link-outline" title="Harness" subtitle={client.connection.url} chevron={false} copy={client.connection.url} /> : null}
@@ -154,4 +154,3 @@ function Divider() { const { colors } = useApp(); return <View style={{ height: 
 function StatSkeleton() { return <View style={{ gap: 10 }}>{[70, 55, 62, 48].map((w, i) => <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Skeleton width={`${w}%`} height={11} /><Skeleton width="18%" height={11} /></View>)}</View>; }
 function titleCase(v: string) { return v.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 /** Cheap size estimate without serialising the whole journal on the UI thread. */
-function approxBytes(records: readonly unknown[]) { const sample = records.slice(-50); if (!sample.length) return 0; return Math.round(JSON.stringify(sample).length / sample.length * records.length); }

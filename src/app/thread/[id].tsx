@@ -28,6 +28,10 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
 import { expandStream, streamText } from '../../lib/stream';
+import { liteEvent } from '../../lib/lite';
+import { coverage, eventsBetween, putEvents } from '../../lib/eventStore';
+import { backfill, turnEvents } from '../../lib/historySync';
+import { StepDetailContext } from '../../components/stepDetail';
 export default function Thread() {
   const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status } = useApp();
   const harnessUrl = harness ?? client?.connection.url ?? savedUrl;
@@ -58,11 +62,11 @@ export default function Thread() {
   const [fade] = useState(() => new Animated.Value(0));
   const shown = useRef(false);
   useFocusEffect(useCallback(() => {
-    let active = true; let receivedLive = false;
+    let active = true; let receivedLive = false; let sync = new AbortController();
     const epoch = cacheEpoch(harnessUrl);
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
     const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); }, 400); };
-    void readHistory(harnessUrl, id).then(cached => { if (active && !receivedLive && cached) { history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
+    void readHistory(harnessUrl, id).then(cached => { if (active && !receivedLive && cached) { cached = { ...cached, records: cached.records.map(liteEvent) }; history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
     liveChunks.current.clear();
     if (!client || client.connection.url !== harnessUrl) return () => { active = false; };
     const stop = client.follow('session/follow', { request: { address, maxMessages: 24, assistantStream: true } }, frame => {
@@ -72,8 +76,15 @@ export default function Thread() {
         // The snapshot carries this thread's current projections (queue/inbox, todos, goal…): apply them
         // so the composer strip is right the moment the chat opens.
         if (frame.projections?.values) applyProjections(id, frame.projections.values);
-        history.current = { records: (frame.records ?? []).filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event), cursor: frame.cursor, hasMore: frame.hasMore, savedAt: Date.now() }; save();
-        setRecords((frame.records ?? []).filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event)); setCursor(frame.cursor); setHasMore(frame.hasMore); liveChunks.current.clear(); setLive('');
+        const full: WireEvent[] = (frame.records ?? []).filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event);
+        // Full bodies go to the phone's event DB; the screen and the quick-open cache keep lite copies.
+        void putEvents(harnessUrl, id, full, { reachedStart: !frame.hasMore }, epoch).catch(() => {});
+        const lite = full.map(liteEvent);
+        history.current = { records: lite, cursor: frame.cursor, hasMore: frame.hasMore, savedAt: Date.now() }; save();
+        setRecords(lite); setCursor(frame.cursor); setHasMore(frame.hasMore);
+        // Keep the phone's copy of this chat complete: page older history in quietly.
+        sync.abort(); sync = new AbortController();
+        if (frame.hasMore) void backfill(client, harnessUrl, id, address, frame.cursor, sync.signal).catch(() => {}); liveChunks.current.clear(); setLive('');
         const active = frame.assistantStream?.activeAttempt;
         const chunks = expandStream(active?.stream);
         attempt.current = { id: active?.attemptId ?? '', next: active?.nextIndex ?? 0, valid: !!active && chunks.length === active.nextIndex };
@@ -81,7 +92,9 @@ export default function Thread() {
         setLive(streamText([...liveChunks.current.values()]));
       }
       if (frame.type === 'event') {
-        const event = frame.event as WireEvent;
+        const full = frame.event as WireEvent;
+        void putEvents(harnessUrl, id, [full], {}, epoch).catch(() => {});
+        const event = liteEvent(full);
         if (!history.current.records.some(x => x.seq === event.seq)) history.current.records = [...history.current.records, event]; save();
         setRecords(p => p.some(x => x.seq === event.seq) ? p : [...p, event]);
         if (event.type === 'turn/start') setRunning(true);
@@ -98,9 +111,11 @@ export default function Thread() {
         if (f.type === 'end' && f.outcome?.kind === 'abandoned') { attempt.current.valid = false; liveChunks.current.clear(); setLive(''); }
       }
     });
-    return () => { active = false; stop(); clearTimeout(saveTimer); if (receivedLive) void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); };
+    return () => { active = false; sync.abort(); stop(); clearTimeout(saveTimer); if (receivedLive) void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); };
   }, [client, id, harnessUrl, refresh, address, applyProjections]));
   const rows = useMemo(() => foldTurns(records, buildTranscript(records)), [records]);
+  // Expanding a lite step loads its full events: phone DB first, the Harness once if never stored.
+  const steps = useMemo(() => ({ load: (from: number, to: number) => turnEvents(client, harnessUrl, id, address, cursor, from, to) }), [client, harnessUrl, id, address, cursor]);
   // Inverted list: index 0 renders at the bottom, so the chat opens on the latest message with no scroll jump.
   const data = useMemo(() => [...rows].reverse(), [rows]);
   // Scroll ownership (like the DSH web chat): follow the tail unless the reader has scrolled away.
@@ -148,7 +163,27 @@ export default function Thread() {
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
   const loadingOlder = useRef(false); const [olderBusy, setOlderBusy] = useState(false);
-  const older = async () => { if (!client || !records.length || loadingOlder.current) return; loadingOlder.current = true; setOlderBusy(true); try { const page = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: records[0].seq, maxMessages: 30 }); const merged = new Map(history.current.records.map(e => [e.seq, e])); for (const r of page.records) if (r.type === 'event') merged.set(r.event.seq, r.event); history.current = { ...history.current, records: [...merged.values()].sort((a, b) => a.seq - b.seq), hasMore: page.hasMore, savedAt: Date.now() }; setRecords(history.current.records); setHasMore(page.hasMore); await writeHistory(harnessUrl, id, history.current); } catch (e) { setError(errorMessage(e)); } finally { loadingOlder.current = false; setOlderBusy(false); } };
+  // Load older messages: from the phone's event DB when it already has them (background backfill),
+  // otherwise one page from the Harness (stored in full). The screen only keeps lite copies.
+  const older = async () => {
+    if (!client || !records.length || loadingOlder.current) return; loadingOlder.current = true; setOlderBusy(true);
+    try {
+      const before = records[0].seq;
+      const cov = await coverage(harnessUrl, id);
+      let full: WireEvent[]; let more: boolean;
+      if (cov && cov.low < before) {
+        full = await eventsBetween(harnessUrl, id, Math.max(cov.low, before - 400), before - 1);
+        more = !cov.complete || full[0]?.seq > cov.low;
+      } else {
+        const page = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: before, maxMessages: 30 });
+        full = page.records.filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event);
+        more = page.hasMore; void putEvents(harnessUrl, id, full, { reachedStart: !page.hasMore }).catch(() => {});
+      }
+      const merged = new Map(history.current.records.map(e => [e.seq, e])); for (const e of full) merged.set(e.seq, liteEvent(e));
+      history.current = { ...history.current, records: [...merged.values()].sort((x, y) => x.seq - y.seq), hasMore: more, savedAt: Date.now() };
+      setRecords(history.current.records); setHasMore(more); await writeHistory(harnessUrl, id, history.current);
+    } catch (e) { setError(errorMessage(e)); } finally { loadingOlder.current = false; setOlderBusy(false); }
+  };
   // Pinch-to-browse prompts (turnOutline) and jump-to-turn.
   const [promptsOpen, setPromptsOpen] = useState(false); const [pendingJump, setPendingJump] = useState<number | null>(null);
   const [highlight, setHighlight] = useState('');
@@ -164,12 +199,14 @@ export default function Thread() {
       try {
         const page = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: records[0].seq, maxMessages: 200, turnWindow: undefined });
         const merged = new Map(history.current.records.map(e => [e.seq, e]));
-        for (const r of page.records) if (r.type === 'event') merged.set(r.event.seq, r.event);
+        for (const r of page.records) if (r.type === 'event') merged.set(r.event.seq, liteEvent(r.event));
+        void putEvents(harnessUrl, id, page.records.filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event)).catch(() => {});
         // Page further back until the turn is covered (bounded).
         let hasOlder = page.hasMore; let guard = 0;
         while (hasOlder && Math.min(...merged.keys()) > entry.seq && guard++ < 20) {
           const next = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: Math.min(...merged.keys()), maxMessages: 200 });
-          for (const r of next.records) if (r.type === 'event') merged.set(r.event.seq, r.event);
+          for (const r of next.records) if (r.type === 'event') merged.set(r.event.seq, liteEvent(r.event));
+          void putEvents(harnessUrl, id, next.records.filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event), { reachedStart: !next.hasMore }).catch(() => {});
           hasOlder = next.hasMore;
         }
         history.current = { ...history.current, records: [...merged.values()].sort((a, b) => a.seq - b.seq), hasMore: hasOlder, savedAt: Date.now() };
@@ -208,7 +245,7 @@ export default function Thread() {
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
         {historyState === 'loading' && !rows.length ? <View style={{ flex: 1, paddingHorizontal: 14, paddingTop: 62 }}><SkeletonChat /></View>
         : !rows.length && !working ? <View style={{ flex: 1, justifyContent: 'center', paddingTop: 62 }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>
-        : <Animated.View style={{ flex: 1, opacity: fade }}><ChatScrollContext.Provider value={chatScroll}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
+        : <Animated.View style={{ flex: 1, opacity: fade }}><ChatScrollContext.Provider value={chatScroll}><StepDetailContext.Provider value={steps}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
           // Inverted: the footer renders at the visual bottom (live text, pending requests), the header at the top.
           maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }}
           initialNumToRender={14} maxToRenderPerBatch={12} windowSize={11} removeClippedSubviews={Platform.OS === 'android'}
@@ -220,7 +257,7 @@ export default function Thread() {
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 62 }}
           ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={`${p.clientId}:${p.eventId}`} frame={p} /> : <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
           ListFooterComponent={hasMore ? <View style={{ alignItems: 'center', paddingVertical: 10 }}>{olderBusy ? <Dots size="sm" /> : <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ height: 30, paddingHorizontal: 14, borderRadius: 15, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="caption1" color="secondary">Load earlier messages</T></Pressable>}</View> : null}
-          renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} /></View>; }} /></GestureDetector></ChatScrollContext.Provider></Animated.View>}
+          renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} /></View>; }} /></GestureDetector></StepDetailContext.Provider></ChatScrollContext.Provider></Animated.View>}
         </View></GestureDetector>
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
