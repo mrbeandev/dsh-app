@@ -80,18 +80,28 @@ function QueueDock({ sessionId, queued, steering }: { sessionId: string; queued:
     </Pressable>
     {open ? <View style={{ paddingHorizontal: 10, paddingBottom: 8, gap: 6 }}>
       {[...steering.map(q => ({ q, steer: true })), ...queued.map(q => ({ q, steer: false }))].map(({ q, steer }) => <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: colors.dark ? '#ffffff0a' : '#0000000a', opacity: busy === q.id ? 0.5 : 1 }}>
-        <Ionicons name={steer ? 'navigate-outline' : 'time-outline'} size={13} color={steer ? colors.primary : colors.tertiary} />
+        <Ionicons name={steer ? 'arrow-redo' : 'time-outline'} size={13} color={steer ? colors.primary : colors.tertiary} />
         <View style={{ flex: 1 }}>
           <T style="caption1" numberOfLines={2} styleOverride={{ fontSize: 12.5 }}>{q.text}</T>
           {steer ? <T style="caption2" color={colors.primary}>Steering · delivered at the next step</T> : null}
         </View>
-        {steer ? null : <QueueAction icon="navigate-outline" label="Steer now" onPress={() => void act(q.id, { kind: 'steer' })} disabled={!!busy} />}
         {steer || !q.editable ? null : <QueueAction icon="create-outline" label="Edit" onPress={() => void edit(q)} disabled={!!busy} />}
         {steer ? null : <QueueAction icon="trash-outline" label="Remove" danger onPress={() => void remove(q)} disabled={!!busy} />}
+        {/* Rightmost: steer this message into the running turn (delivered at the agent's next step). */}
+        {steer ? null : <SteerButton onPress={() => void act(q.id, { kind: 'steer' })} disabled={!!busy} />}
       </View>)}
       {error ? <T style="caption2" color="danger">{error}</T> : null}
     </View> : null}
   </Shell>;
+}
+
+/** Filled accent arrow, so "send this into the current turn now" stands out from Edit/Remove. */
+function SteerButton({ onPress, disabled }: { onPress: () => void; disabled?: boolean }) {
+  const { colors } = useApp();
+  return <Pressable accessibilityRole="button" accessibilityLabel="Steer now" accessibilityHint="Deliver this message to the agent at its next step instead of after this turn" disabled={disabled} onPress={onPress} hitSlop={8}
+    style={({ pressed }) => ({ width: 30, height: 30, borderRadius: 15, marginLeft: 2, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>
+    <Ionicons name="arrow-redo" size={15} color={colors.bg} />
+  </Pressable>;
 }
 
 function QueueAction({ icon, label, onPress, disabled, danger }: { icon: IconName; label: string; onPress: () => void; disabled?: boolean; danger?: boolean }) {
