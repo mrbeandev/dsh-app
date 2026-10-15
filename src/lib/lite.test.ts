@@ -67,3 +67,16 @@ describe('lite tool calls keep the Web UI title', () => {
     expect(toolSummary('write', String(lw.data.arguments))).toBe(toolSummary('write', p));
   });
 });
+
+describe('image results', () => {
+  it('Read image results keep their image reference in lite form', () => {
+    const img = { type: 'image', attachment: { attachmentId: 'att-1', mediaType: 'image/png', bytes: 50000, width: 1080, height: 2400, name: 'shot.png' } };
+    const events = [
+      ev(1, 'tool/call', { callId: 'r', name: 'read_image', arguments: JSON.stringify({ path: '/tmp/shot.png' }) }),
+      ev(2, 'tool/result', { message: { toolCallId: 'r', content: [{ type: 'text', text: 'x'.repeat(5000) }, img] } }),
+    ];
+    const tool = buildTranscript(events.map(liteEvent)).find(r => r.kind === 'tool') as any;
+    expect(tool.images).toEqual([{ attachmentId: 'att-1', mediaType: 'image/png', width: 1080, height: 2400, name: 'shot.png' }]);
+    expect(tool.result).toBe('[Image]'); // the 5 KB text was dropped; only the image marker remains
+  });
+});

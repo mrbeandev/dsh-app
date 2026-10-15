@@ -52,10 +52,19 @@ function reasoningText(value: unknown): string {
  * tool calls paired with their results, context injections, compaction,
  * system prompt, turn failures, and command rows.
  */
+/** An image attachment returned by a tool (e.g. Read image); bytes come from session/attachment. */
+export type ImageRef = { attachmentId: string; mediaType: string; width: number; height: number; name?: string };
+
+/** Image blocks inside a message's content. */
+export function imagesOf(content: unknown): ImageRef[] {
+  if (!Array.isArray(content)) return [];
+  return content.filter((b: any) => b?.type === 'image' && b.attachment?.attachmentId).map((b: any) => ({ attachmentId: String(b.attachment.attachmentId), mediaType: String(b.attachment.mediaType ?? 'image/png'), width: Number(b.attachment.width) || 0, height: Number(b.attachment.height) || 0, name: b.attachment.name }));
+}
+
 export type TranscriptRow =
   | { id: string; kind: 'user'; text: string; source?: string }
   | { id: string; kind: 'assistant'; text: string; reasoning?: string; interrupted?: boolean; lite?: boolean }
-  | { id: string; kind: 'tool'; callId: string; name: string; args: string; result?: string; isError?: boolean; errorReason?: string; pending: boolean; approval?: 'asked' | 'allowed' | 'denied' | 'cancelled'; lite?: boolean; resultSeq?: number }
+  | { id: string; kind: 'tool'; callId: string; name: string; args: string; result?: string; isError?: boolean; errorReason?: string; pending: boolean; approval?: 'asked' | 'allowed' | 'denied' | 'cancelled'; lite?: boolean; resultSeq?: number; images?: ImageRef[] }
   | { id: string; kind: 'context'; label: string; summary?: string; text: string; icon: ContextIcon; lite?: boolean }
   | { id: string; kind: 'compaction'; state: 'running' | 'done' | 'failed'; summary?: string; tokens?: number; error?: string }
   | { id: string; kind: 'system'; text: string; lite?: boolean; bytes?: number }
@@ -179,7 +188,8 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
         const result = textContent(message?.content);
         const err = d.error as any;
         const row = tools.get(callId);
-        if (row) { row.result = result; row.isError = !!message?.isError; row.errorReason = err?.reason; row.pending = false; row.resultSeq = event.seq; if ((d as any).__lite) row.lite = true; }
+        const images = imagesOf(message?.content);
+        if (row) { row.result = result; row.isError = !!message?.isError; row.errorReason = err?.reason; row.pending = false; row.resultSeq = event.seq; if (images.length) row.images = images; if ((d as any).__lite) row.lite = true; }
         else rows.push({ id, kind: 'tool', callId: callId || id, name: 'Tool result', args: '', result, isError: !!message?.isError, errorReason: err?.reason, pending: false });
         break;
       }

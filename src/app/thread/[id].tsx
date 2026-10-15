@@ -126,7 +126,7 @@ export default function Thread() {
   }, [client, id, harnessUrl, refresh, address, applyProjections]));
   const rows = useMemo(() => foldTurns(records, buildTranscript(records)), [records]);
   // Expanding a lite step loads its full events: phone DB first, the Harness once if never stored.
-  const steps = useMemo(() => ({ load: (from: number, to: number) => turnEvents(client, harnessUrl, id, address, cursor, from, to) }), [client, harnessUrl, id, address, cursor]);
+  const steps = useMemo(() => ({ sessionId: id, load: (from: number, to: number) => turnEvents(client, harnessUrl, id, address, cursor, from, to) }), [client, harnessUrl, id, address, cursor]);
   // Inverted list: index 0 renders at the bottom, so the chat opens on the latest message with no scroll jump.
   const data = useMemo(() => [...rows].reverse(), [rows]);
   // Scroll ownership (like the DSH web chat): follow the tail unless the reader has scrolled away.

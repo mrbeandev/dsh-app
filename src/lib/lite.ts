@@ -34,7 +34,9 @@ export function liteEvent(e: WireEvent): WireEvent {
     }
     case 'tool/result': {
       const m = d.message ?? {};
-      return { ...e, data: { message: { toolCallId: m.toolCallId, source: m.source ? { callId: m.source.callId } : undefined, isError: m.isError, content: [] }, error: d.error ? { reason: d.error.reason } : undefined, __lite: { lite: true, bytes: size() } } };
+      // Keep image references (a few bytes each; the picture loads from session/attachment on expand).
+      const images = Array.isArray(m.content) ? m.content.filter((b: any) => b?.type === 'image') : [];
+      return { ...e, data: { message: { toolCallId: m.toolCallId, source: m.source ? { callId: m.source.callId } : undefined, isError: m.isError, content: images }, error: d.error ? { reason: d.error.reason } : undefined, __lite: { lite: true, bytes: size() } } };
     }
     case 'system/message':
       return { ...e, data: { message: { content: [{ type: 'text', text: '' }] }, __lite: { lite: true, bytes: size() } } };

@@ -2,6 +2,7 @@ import { memo, useContext, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { ChatScrollContext } from './chatScroll';
 import { StepDetailContext } from './stepDetail';
+import { AttachmentImage } from './AttachmentImage';
 import { Dots } from './Loader';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../state/app';
@@ -141,6 +142,7 @@ export const ChatRow = memo(function ChatRow({ row, onUserAction, highlighted }:
       const verb = toolTitle(row.name, row.args).verb; const label = toolLabel(row.name); const summary = toolSummary(row.name, row.args);
       const title = <Text numberOfLines={1} style={{ fontSize: 13, lineHeight: 18 }}><Text style={{ color: row.isError ? colors.danger : colors.muted, fontWeight: '500' }}>{label}</Text>{summary ? <Text style={{ color: colors.tertiary }}>{'  ·  '}{summary}</Text> : null}{row.approval ? <Text style={{ color: row.approval === 'denied' ? colors.danger : row.approval === 'asked' ? '#ffb74d' : colors.tertiary, fontSize: 11 }}>{'  ·  '}{row.approval === 'asked' ? 'Needs approval' : row.approval === 'allowed' ? 'Allowed' : row.approval === 'denied' ? 'Denied' : 'Approval cancelled'}</Text> : null}</Text>;
       const toolBody = (t: Extract<TranscriptRow, { kind: 'tool' }>) => <>
+        {t.images?.length && steps ? t.images.map(im => <AttachmentImage key={im.attachmentId} sessionId={steps.sessionId} image={im} />) : null}
         {t.args ? <Mono label={t.name} text={prettyArgs(t.args)} /> : null}
         {t.result !== undefined ? <><View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} /><Mono label={t.isError ? 'Error' : 'Result'} text={t.errorReason ? `${t.errorReason}\n\n${t.result}` : t.result || '(no output)'} color={t.isError ? colors.danger : undefined} /></> : null}
       </>;
