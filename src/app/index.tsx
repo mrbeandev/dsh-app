@@ -50,7 +50,13 @@ export default function Home() {
   const showMore = (id: string) => setShown(p => ({ ...p, [id]: (p[id] ?? 10) + 10 }));
   const reload = async () => { setRefreshing(true); try { await refresh(); setError(''); } catch (e) { setError(errorMessage(e)); } finally { setRefreshing(false); } };
   const host = client ? new URL(client.connection.url).host : savedUrl ? new URL(savedUrl).host : '';
-  const statusText = !host ? 'Not connected' : live ? host : status === 'connecting' ? `${host} · Connecting…` : `${host} · Offline`;
+  // Connection state shown beside the Harness host: green Live, gray Connecting…, red Offline.
+  const connecting = !!host && (status === 'connecting' || status === 'reconnecting' || status === 'cached');
+  const conn = !host ? { label: 'Not connected', color: colors.tertiary }
+    : live ? { label: 'Live', color: colors.dark ? '#5ddc8a' : '#1e8e4a' }
+    : connecting ? { label: 'Connecting…', color: colors.muted }
+    : { label: 'Offline', color: colors.danger };
+  const statusText = host ? `${host} · ${conn.label}` : conn.label;
 
   const menu = useActionMenu(); const dialog = useDialog();
   const act = (fn: () => Promise<unknown>) => { void fn().then(() => refresh()).catch(e => setError(errorMessage(e))); };
@@ -88,8 +94,9 @@ export default function Home() {
         ListHeaderComponent={<><UpdateBanner /><View style={{ paddingHorizontal: 12, gap: 10, paddingBottom: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <Pressable accessibilityRole="button" accessibilityLabel={`Harness: ${statusText}. Change connection`} onPress={() => router.push('/connect')} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, paddingHorizontal: 6 }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: live ? colors.live : colors.tertiary }} />
-              <T style="footnote" color="secondary" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{statusText}</T>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: conn.color }} />
+              {host ? <T style="footnote" color="secondary" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{host}</T> : null}
+              <T style="footnote" weight="600" color={conn.color} numberOfLines={1}>{host ? `· ${conn.label}` : conn.label}</T>
               <Ionicons name="chevron-down" size={11} color={colors.muted} />
             </Pressable>
             <SyncStatus />
