@@ -62,7 +62,7 @@ export function imagesOf(content: unknown): ImageRef[] {
 }
 
 export type TranscriptRow =
-  | { id: string; kind: 'user'; text: string; source?: string }
+  | { id: string; kind: 'user'; text: string; source?: string; images?: ImageRef[] }
   | { id: string; kind: 'assistant'; text: string; reasoning?: string; interrupted?: boolean; lite?: boolean }
   | { id: string; kind: 'tool'; callId: string; name: string; args: string; result?: string; isError?: boolean; errorReason?: string; pending: boolean; approval?: 'asked' | 'allowed' | 'denied' | 'cancelled'; lite?: boolean; resultSeq?: number; images?: ImageRef[] }
   | { id: string; kind: 'context'; label: string; summary?: string; text: string; icon: ContextIcon; lite?: boolean }
@@ -141,7 +141,11 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
       case 'message/user': {
         const source = (d.source ?? (d.message as any)?.source ?? {}) as Record<string, any>;
         const text = textContent(d.content ?? (d.message as any)?.content);
-        if (!source.kind || source.kind === 'user') { if (text) rows.push({ id, kind: 'user', text }); break; }
+        if (!source.kind || source.kind === 'user') {
+          const images = imagesOf(d.content ?? (d.message as any)?.content);
+          if (text || images.length) rows.push({ id, kind: 'user', text, ...(images.length ? { images } : {}) });
+          break;
+        }
         if (source.kind === 'compact-checkpoint') {
           // The replacement message carries the summary; show it on the compaction row instead of a duplicate.
           const latest = [...compactions.values()].pop();

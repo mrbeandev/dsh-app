@@ -40,6 +40,7 @@ import { StepDetailContext } from '../../components/stepDetail';
 import { rememberSession } from '../../lib/recentSession';
 import { useImports } from '../../lib/useImports';
 import { promptWithImports } from '../../lib/imports';
+import { diagnostic } from '../../lib/diagnostics';
 
 /** List anchoring (keeps your place as new messages arrive); paused while a row expands. */
 const MVCP = { minIndexForVisible: 0, autoscrollToTopThreshold: 80 } as const;
@@ -175,6 +176,7 @@ export default function Thread() {
   const send = async (mode: 'queue' | 'steer' = 'queue') => {
     if (!client || (!draft.trim() && !imports.items.length)) return;
     if (imports.items.some(i => i.state !== 'ready')) { setError('Wait for attachments to finish or remove failed imports.'); return; }
+    diagnostic('prompt.submit', { count: imports.items.length, phase: mode, pending: sending.length });
     const selected = imports.items; const content = draft.trim(); const parts = promptWithImports(content, selected); const key = randomUUID();
     setError(''); setDraft(''); imports.setItems([]); setSending(s => [...s, { key, text: [content, ...selected.map(i => `Attachment: ${i.name}`)].filter(Boolean).join('\n') }]); scrollToBottom();
     try {
@@ -304,7 +306,7 @@ export default function Thread() {
   const toLatest = () => scrollToBottom();
   const goBack = useCallback(() => { if (router.canGoBack()) router.back(); else router.replace('/'); }, []);
   return <SwipeBack onBack={goBack} enabled={!promptsOpen}><Screen edges={['top', 'bottom']}>
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+    <KeyboardAvoidingView onLayout={e => diagnostic('chat.layout', { ...e.nativeEvent.layout })} style={{ flex: 1 }} behavior="padding">
       <GlassTarget target={target}>
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
         {historyState === 'loading' && !rows.length ? <View style={{ flex: 1, paddingHorizontal: 14, paddingTop: 62 }}><SkeletonChat /></View>

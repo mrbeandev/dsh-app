@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HarnessClient } from './harness';
+vi.mock('./diagnostics', () => ({ diagnostic: vi.fn() }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'rpc-1' }));
 const fetchMock = vi.fn();

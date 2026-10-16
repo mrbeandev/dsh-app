@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { Connection, endpoint, Frame, normalizeConnection, rpcEnvelope } from './protocol';
 import { attachBinary, parseMultipart } from './multipart';
+import { diagnostic } from './diagnostics';
 
 export class HarnessError extends Error {
   constructor(public code: string, message: string) { super(message); }
@@ -40,6 +41,12 @@ export class HarnessClient {
     await this.call('session/list', { _request: {} });
   }
   async call<T = any>(method: string, args: Record<string, unknown>): Promise<T> {
+    const start = Date.now(); diagnostic('rpc.start', { method });
+    try { return await this.performCall<T>(method, args); }
+    catch (e) { diagnostic('rpc.error', { method, durationMs: Date.now() - start, code: e instanceof HarnessError ? e.code : 'transport' }); throw e; }
+    finally { diagnostic('rpc.end', { method, durationMs: Date.now() - start }); }
+  }
+  private async performCall<T = any>(method: string, args: Record<string, unknown>): Promise<T> {
     const rpcId = randomUUID();
     const response = await fetch(endpoint(this.connection.url, `/api/${method}`), {
       method: 'POST', credentials: 'include', signal: AbortSignal.timeout(20000),
@@ -86,19 +93,20 @@ export class HarnessClient {
     this.socket = Platform.OS === 'web' ? new WebSocket(url) : new Socket(url, undefined, this.cookie ? { headers: { Cookie: this.cookie } } : undefined);
     this.socket!.onopen = () => {
       this.attempts = 0;
+      diagnostic('socket.state', { status: 'open', count: this.streams.size });
       for (const [streamId, stream] of this.streams) this.open(streamId, stream.endpoint, stream.args);
     };
     this.socket!.onmessage = (message) => {
       try {
         const frame = JSON.parse(String(message.data)); this.onActivity();
         if (frame.type === 'item') this.streams.get(frame.streamId)?.receive(frame.value);
-        if (frame.type === 'error') this.streams.get(frame.streamId)?.receive({ type: 'stream-error', error: frame.error });
+        if (frame.type === 'error') { diagnostic('stream.error', { code: frame.error?.code ?? 'unknown' }); this.streams.get(frame.streamId)?.receive({ type: 'stream-error', error: frame.error }); }
       } catch { /* Ignore malformed frames, never execute server content. */ }
     };
     this.socket!.onclose = () => {
       this.clientId = '';
       if (!this.closed) {
-        this.onStatus('reconnecting');
+        diagnostic('socket.state', { status: 'reconnecting' }); this.onStatus('reconnecting');
         this.retry = setTimeout(() => this.connectStreams(), Math.min(1000 * 2 ** this.attempts++, 15000));
       }
     };

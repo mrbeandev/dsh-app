@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { prepareImport } from './upload';
 const mocks = vi.hoisted(() => ({ base64: vi.fn(async () => 'YWJj'), upload: vi.fn(), release: vi.fn() }));
+vi.mock('./diagnostics', () => ({ diagnostic: vi.fn() }));
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 vi.mock('expo-file-system', () => ({ File: class { size = 3; base64 = mocks.base64; }, UploadType: { BINARY_CONTENT: 0 }, UploadTask: class { uploadAsync = mocks.upload; release = mocks.release; } }));
 const client = { connection: { url: 'http://example.com' }, transferHeaders: { Cookie: 'session=value' } } as any;

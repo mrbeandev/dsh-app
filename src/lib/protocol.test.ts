@@ -5,6 +5,18 @@ const ev = (seq: number, type: string, data: Record<string, unknown> = {}): Wire
 const text = (t: string) => [{ type: 'text', text: t }];
 const only = (rows: TranscriptRow[], kind: TranscriptRow['kind']) => rows.filter(r => r.kind === kind);
 
+describe('user image attachments', () => {
+  const image = { type: 'image', attachment: { attachmentId: 'img-1', mediaType: 'image/png', width: 640, height: 360, name: 'shot.png' } };
+  it('retains image references with text and image-only prompts', () => {
+    for (const type of ['user/message', 'message/user']) {
+      const rows = buildTranscript([ev(1, type, { message: { source: { kind: 'user' }, content: [image] } })]);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ kind: 'user', images: [{ attachmentId: 'img-1', name: 'shot.png' }] });
+    }
+    expect(buildTranscript([ev(2, 'user/message', { content: [...text('Look here'), image] })])[0]).toMatchObject({ kind: 'user', images: [{ attachmentId: 'img-1' }] });
+  });
+});
+
 describe('connection', () => {
   it('accepts local and tunnel addresses without a mode', () => {
     expect(normalizeConnection({ url: ' http://localhost:3080/ ', token: ' secret ' })).toEqual({ url: 'http://localhost:3080', token: 'secret' });

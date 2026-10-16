@@ -7,6 +7,7 @@ import { useDialog } from '../components/Dialog';
 import { Header, Row, Screen, Section, T, s } from '../components/ui';
 import { UpdateSection } from '../components/UpdateCard';
 import { NotificationSection } from '../components/NotificationSettings';
+import { DiagnosticSettings } from '../components/DiagnosticSettings';
 
 /** Settings as an iOS grouped-inset list (HIG › Lists and tables). */
 export default function Settings() {
@@ -32,6 +33,7 @@ export default function Settings() {
     </Section>
     <NotificationSection />
     <UpdateSection />
+    <DiagnosticSettings />
     <Section header="About" footer="Native Solid Glass theme adapted from DeepLethe. Original screen patterns inspired by T3 Code Mobile; Harness protocol informed by DeepSeek Harness Mobile. MIT licensed.">
       <Row title="DSH Mobile on GitHub" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/mrbeandev/dsh-app')} />
       <Row title="Solid Glass by DeepLethe" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/deeplethe/solid-glass')} />

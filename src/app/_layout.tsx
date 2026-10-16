@@ -8,10 +8,12 @@ import { DialogProvider } from '../components/Dialog';
 import { UpdateProvider } from '../state/updates';
 import { NotificationProvider } from '../state/notifications';
 import { UnseenProvider } from '../state/unseen';
+import { BetaDiagnostics } from '../components/BetaDiagnostics';
 
 function Navigation() {
   const { colors } = useApp();
   return <>
+    <BetaDiagnostics />
     <StatusBar style={colors.dark ? 'light' : 'dark'} />
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'slide_from_right', animationDuration: 220 }}>
       <Stack.Screen name="index" />

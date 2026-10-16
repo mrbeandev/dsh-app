@@ -14,17 +14,18 @@ const cache = new Map<string, string>();
  */
 export function AttachmentImage({ sessionId, image }: { sessionId: string; image: ImageRef }) {
   const { client, colors } = useApp();
-  const [uri, setUri] = useState(() => cache.get(image.attachmentId) ?? '');
+  const cacheKey = `${client?.connection.url ?? ''}:${sessionId}:${image.attachmentId}`;
+  const [uri, setUri] = useState(() => cache.get(cacheKey) ?? '');
   const [error, setError] = useState('');
   const [big, setBig] = useState(false);
   useEffect(() => {
     if (uri || !client) return;
     let active = true;
     client.request<{ attachment: { mediaType: string }; data: string }>('session/attachment', { sessionId, attachmentId: image.attachmentId })
-      .then(r => { const u = `data:${r.attachment?.mediaType ?? image.mediaType};base64,${r.data}`; cache.set(image.attachmentId, u); if (active) setUri(u); })
+      .then(r => { const u = `data:${r.attachment?.mediaType ?? image.mediaType};base64,${r.data}`; cache.set(cacheKey, u); if (cache.size > 24) cache.delete(cache.keys().next().value!); if (active) setUri(u); })
       .catch(e => { if (active) setError(String(e?.message ?? e)); });
     return () => { active = false; };
-  }, [client, sessionId, image.attachmentId, image.mediaType, uri]);
+  }, [client, sessionId, image.attachmentId, image.mediaType, cacheKey, uri]);
   const ratio = image.width && image.height ? image.width / image.height : 16 / 10;
   const width = big ? '100%' : '70%';
   return <View style={{ padding: 10, gap: 4 }}>
