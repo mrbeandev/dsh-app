@@ -12,10 +12,10 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/showcase-hero.webp" width="900" alt="DSH Mobile: workspace tree and a live conversation">
+  <img src=".github/assets/showcase-hero.webp" width="900" alt="DSH Mobile: workspace tree with subagent sessions and live tool calls">
 </p>
 <p align="center">
-  <img src=".github/assets/showcase-features.webp" width="900" alt="Session details, New Session form and grouped file imports">
+  <img src=".github/assets/showcase-features.webp" width="900" alt="Session details, a subagent session and a Markdown plan">
 </p>
 
 > Independent community project. Not affiliated with or endorsed by DeepSeek or T3.
