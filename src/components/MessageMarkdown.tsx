@@ -14,7 +14,7 @@ const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 function CodeBlock({ code, lang, colors }: { code: string; lang?: string; colors: Colors }) {
   const [copied, setCopied] = useState(false);
   const copy = () => { void Clipboard.setStringAsync(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
-  return <View style={{ marginVertical: 6, borderRadius: 12, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.dark ? '#18181b' : '#f6f8fa' }}>
+  return <View style={{ marginVertical: 6, borderRadius: 12, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.panel }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 12, paddingRight: 4, height: 30, backgroundColor: colors.fill, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
       <Text style={{ flex: 1, color: colors.muted, fontSize: 11, fontFamily: MONO }}>{lang || 'code'}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel={copied ? 'Copied' : 'Copy code'} onPress={copy} hitSlop={8} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, height: 26, paddingHorizontal: 8, borderRadius: 13, opacity: pressed ? 0.5 : 1 })}>
@@ -33,7 +33,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: s
     fence: node => <CodeBlock key={node.key} code={node.content.replace(/\n$/, '')} lang={(node as any).sourceInfo?.trim().split(/\s+/)[0]} colors={colors} />,
     code_block: node => <CodeBlock key={node.key} code={node.content.replace(/\n$/, '')} colors={colors} />,
     // Inline code: tinted monospace chip that stays on the text line.
-    code_inline: (node, _c, _p, _s, inherited) => <Text key={node.key} selectable style={[inherited, { fontFamily: MONO, fontSize: 11.5, color: colors.dark ? '#e6c07b' : '#a0522d', backgroundColor: colors.fill }]}>{` ${node.content} `}</Text>,
+    code_inline: (node, _c, _p, _s, inherited) => <Text key={node.key} selectable style={[inherited, { fontFamily: MONO, fontSize: 11.5, color: colors.codeInline, backgroundColor: colors.fill }]}>{` ${node.content} `}</Text>,
     // Quote: accent bar + tinted card.
     blockquote: (node, children) => <View key={node.key} style={{ flexDirection: 'row', marginVertical: 6, borderRadius: 10, overflow: 'hidden', backgroundColor: colors.fill }}><View style={{ width: 3, backgroundColor: colors.primary }} /><View style={{ flex: 1, paddingHorizontal: 10, paddingTop: 7, paddingBottom: 1 }}>{children}</View></View>,
     text: (node, _children, _parents, _styles, inherited) => <Text key={node.key} selectable style={[inherited, { color: inherited?.color ?? colors.text }]}>{node.content}</Text>,
@@ -45,7 +45,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: s
     heading2: { fontSize: 14, lineHeight: 19, fontWeight: '600', marginTop: 5, marginBottom: 3 },
     heading3: { fontSize: 13, lineHeight: 18, fontWeight: '600', marginTop: 4, marginBottom: 3 },
     strong: { fontWeight: '600' }, em: { fontStyle: 'italic' },
-    link: { color: colors.primary, textDecorationLine: 'none' },
+    link: { color: colors.link, textDecorationLine: 'none' },
     bullet_list: { marginBottom: 6 }, ordered_list: { marginBottom: 6 }, list_item: { marginBottom: 2 },
     bullet_list_icon: { color: colors.muted, marginLeft: 2, marginRight: 6 }, ordered_list_icon: { color: colors.muted, marginRight: 6 },
     hr: { backgroundColor: colors.separator, height: StyleSheet.hairlineWidth, marginVertical: 10 },

@@ -18,6 +18,8 @@ import { groupWorkspaces } from '../lib/workspaces';
 import { relativeTime } from '../lib/time';
 import { useActionMenu } from '../components/ActionMenu';
 import { useDialog } from '../components/Dialog';
+import { SwipeToRecent } from '../components/SwipeToRecent';
+import { recentSession } from '../lib/recentSession';
 
 type Filter = 'All' | 'Working';
 
@@ -55,7 +57,7 @@ export default function Home() {
   // Connection state shown beside the Harness host: green Live, gray Connecting…, red Offline.
   const connecting = !!host && (status === 'connecting' || status === 'reconnecting' || status === 'cached');
   const conn = !host ? { label: 'Not connected', color: colors.tertiary }
-    : live ? { label: 'Live', color: colors.dark ? '#5ddc8a' : '#1e8e4a' }
+    : live ? { label: 'Live', color: colors.success }
     : connecting ? { label: 'Connecting…', color: colors.muted }
     : { label: 'Offline', color: colors.danger };
   const statusText = host ? `${host} · ${conn.label}` : conn.label;
@@ -68,7 +70,7 @@ export default function Home() {
     const real = !section.id.startsWith('path:'); const first = section.sessions[0]?.sessionId;
     menu({ title: section.title, subtitle: section.path, actions: [
       ...(first ? [{ label: 'Browse Files', icon: 'folder-open-outline' as const, onPress: () => router.push({ pathname: '/files', params: { sessionId: first, root: section.path } }) }, { label: 'Open Terminal', icon: 'terminal-outline' as const, onPress: () => router.push({ pathname: '/terminal', params: { sessionId: first } }) }] : []),
-      { label: 'New Thread Here', icon: 'add-circle-outline', onPress: () => router.push({ pathname: '/new', params: { cwd: section.path } }) },
+      { label: 'New Session Here', icon: 'add-circle-outline', onPress: () => router.push({ pathname: '/new', params: { cwd: section.path } }) },
       ...(real ? [{ label: 'Rename', icon: 'pencil-outline' as const, onPress: () => { void dialog.prompt({ title: 'Rename Workspace', initial: section.title, placeholder: 'Workspace name', confirm: 'Rename' }).then(t => { if (t) act(() => client!.call('workspace/rename', { request: { workspaceId: section.id, title: t } })); }); } }] : []),
       { label: 'Refresh Cache', icon: 'refresh-outline', detail: 'Chats download again only when opened', onPress: () => { void refreshWorkspace(section.sessions.map(x => x.sessionId)).catch(e => setError(errorMessage(e))); } },
       ...(real ? [{ label: 'Remove Workspace', icon: 'trash-outline' as const, destructive: true, detail: 'Removes it from the list; files stay on disk', onPress: () => confirm(`Remove ${section.title}?`, 'The folder and its files stay on the Harness. Only the workspace entry is removed.', 'Remove', () => act(() => client!.call('workspace/delete', { request: { workspaceId: section.id } }))) }] : []),
@@ -84,7 +86,19 @@ export default function Home() {
     ] });
   };
 
-  return <Screen edges={['top']}>
+  const openingRecent = useRef(false);
+  const openRecent = async () => {
+    if (openingRecent.current) return;
+    const url = client?.connection.url ?? savedUrl; if (!url) return;
+    openingRecent.current = true;
+    try {
+      const id = await recentSession(url);
+      if (id && sessions.some(s => s.sessionId === id) && !archived.includes(id)) {
+        router.push({ pathname: '/thread/[id]', params: { id, harness: url } });
+      }
+    } finally { setTimeout(() => { openingRecent.current = false; }, 500); }
+  };
+  return <SwipeToRecent onOpen={() => void openRecent()} enabled={!loading && !!(client?.connection.url ?? savedUrl)}><Screen edges={['top']}>
     <GlassTarget target={target}>
       {loading ? <View style={{ paddingTop: 70 }}><SkeletonRows rows={10} /></View> : <SectionList
         sections={sections}
@@ -103,30 +117,30 @@ export default function Home() {
             </Pressable>
             <SyncStatus />
           </View>
-          <SearchField value={query} onChangeText={setQuery} placeholder="Search workspaces and threads" />
+          <SearchField value={query} onChangeText={setQuery} placeholder="Search workspaces and sessions" />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            {(['All', 'Working'] as const).map(x => { const on = filter === x; return <Pressable key={x} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setFilter(x)} hitSlop={slop(30)} style={({ pressed }) => ({ height: 30, paddingHorizontal: 12, borderRadius: 15, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: on ? colors.fill : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? colors.glassEdge : 'transparent', opacity: pressed ? 0.6 : 1 })}><T style="footnote" weight="500">{x}</T>{x === 'Working' && workingCount ? <T style="caption1" color="secondary">{workingCount}</T> : null}</Pressable>; })}
+            {(['All', 'Working'] as const).map(x => { const on = filter === x; return <Pressable key={x} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setFilter(x)} hitSlop={slop(30)} style={({ pressed }) => ({ height: 30, paddingHorizontal: 12, borderRadius: 8, boxShadow: on ? `inset 0 1px 0 ${colors.rim}` : undefined, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: on ? colors.fill : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? colors.glassEdge : 'transparent', opacity: pressed ? 0.6 : 1 })}><T style="footnote" weight="500">{x}</T>{x === 'Working' && workingCount ? <T style="caption1" color="secondary">{workingCount}</T> : null}</Pressable>; })}
             <View style={{ flex: 1 }} />
           </View>
         </View></>}
         renderSectionHeader={({ section }) => { const open = isOpen(section.id); const runningHere = section.sessions.some(x => live && x.running); return <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 6, marginTop: 8 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} threads`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} sessions`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
             <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={colors.muted} style={{ width: 12 }} />
             <Ionicons name={open ? 'folder-open-outline' : 'folder-outline'} size={14} color={colors.muted} />
             <T style="subhead" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{section.title}</T>
             <T style="caption1" color="secondary">{section.sessions.length}</T>
-            {!open && runningHere ? <View accessibilityLabel="Has a live thread" style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live }} /> : null}
+            {!open && runningHere ? <View accessibilityLabel="Has a live session" style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live }} /> : null}
           </Pressable>
           <IconButton icon="ellipsis-horizontal" size={17} tint={colors.muted} label={`Options for ${section.title}`} onPress={() => workspaceMenu(section)} />
         </View>; }}
-        renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(10, section.more)} more threads in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 19, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(10, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
+        renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(10, section.more)} more sessions in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 19, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(10, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
         renderItem={({ item }) => {
           const active = item.running && live; const attention = pending.some(p => p.agentId === item.sessionId);
           const finished = !active && !attention && unseen.has(item.sessionId);
           const tree = subagentTree(item, subIndex, byId);
           return <View style={{ marginLeft: 19, paddingLeft: 10, paddingRight: 12, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator }}>
             <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 38, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: attention ? '#ffb74d' : active ? colors.live : finished ? (colors.dark ? '#5ddc8a' : '#1e8e4a') : 'transparent' }} />
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: attention ? colors.warning : active ? colors.live : finished ? (colors.success) : 'transparent' }} />
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>
               {pinned.includes(item.sessionId) ? <Ionicons name="pin" size={11} color={colors.muted} /> : null}
               <SubagentToggle nodes={tree} open={!!subOpen[item.sessionId]} onToggle={() => setSubOpen(o => ({ ...o, [item.sessionId]: !o[item.sessionId] }))} />
@@ -136,7 +150,7 @@ export default function Home() {
           </View>;
         }}
         ListEmptyComponent={<View style={{ flex: 1, justifyContent: 'center', paddingTop: 40, gap: 20 }}>
-          <Empty icon={client ? 'search' : 'server-outline'} title={client ? 'No Threads' : 'Connect a Harness'} detail={client ? (query ? 'No threads match your search.' : 'Start a new task to see it here.') : 'Add your Harness URL and token to see your workspaces and threads.'} />
+          <Empty icon={client ? 'search' : 'server-outline'} title={client ? 'No Sessions' : 'Connect a Harness'} detail={client ? (query ? 'No sessions match your search.' : 'Start a new task to see it here.') : 'Add your Harness URL and token to see your workspaces and sessions.'} />
           {!client && !sessions.length ? <View style={{ paddingHorizontal: 48 }}><Button title="Connect" onPress={() => router.push('/connect')} /></View> : null}
         </View>}
       />}
@@ -156,9 +170,9 @@ export default function Home() {
     {client ? <View pointerEvents="box-none" style={{ position: 'absolute', right: 14, bottom: insets.bottom + 14 }}>
       <GlassTargetProvider value={target}>
         <Pressable accessibilityRole="button" accessibilityLabel="New task" onPress={() => router.push('/new')} hitSlop={4} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-          <Glass radius={22} interactive prominent style={{ height: 44, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}><Ionicons name="add" size={20} color={colors.text} /><T style="footnote" weight="600">New task</T></Glass>
+          <Glass radius={11} interactive prominent style={{ height: 44, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}><Ionicons name="add" size={20} color={colors.text} /><T style="footnote" weight="600">New task</T></Glass>
         </Pressable>
       </GlassTargetProvider>
     </View> : null}
-  </Screen>;
+  </Screen></SwipeToRecent>;
 }

@@ -69,7 +69,7 @@ export function FolderBrowser({ initial, confirmLabel, onPick, busy }: { initial
   // Last resort (no thread to host a shell, or the shell failed): browse inside existing workspaces.
   if (!mode) return <View style={{ flex: 1 }}>
     <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
-      <T style="caption1" color="secondary">{shellHost ? 'Couldn’t open a shell on the Harness to browse its file system, so here are your workspaces instead.' : 'Start any thread first so the app can browse the Harness file system. Meanwhile you can browse inside your workspaces.'}</T>
+      <T style="caption1" color="secondary">{shellHost ? 'Couldn’t open a shell on the Harness to browse its file system, so here are your workspaces instead.' : 'Start any session first so the app can browse the Harness file system. Meanwhile you can browse inside your workspaces.'}</T>
       {error ? <T style="caption1" color="danger">{error}</T> : null}
       {shellHost ? <Button title="Try Again" secondary onPress={() => void startShell()} /> : null}
     </View>

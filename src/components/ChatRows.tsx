@@ -10,6 +10,7 @@ import { T } from './ui';
 import { MessageMarkdown } from './MessageMarkdown';
 import { buildTranscript, toolTitle, type ContextIcon, type TranscriptRow, type WireEvent } from '../lib/protocol';
 import { toolLabel, toolSummary } from '../lib/toolLabel';
+import { paneFinish } from '../lib/solidGlass';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -91,7 +92,7 @@ function ProcessRow({ icon, iconColor, title, detail, children, load, tone, busy
   const body = load ? loaded : children;
   busy = busy || loading;
   const expandable = !!children || !!load;
-  const color = tone === 'error' ? colors.danger : tone === 'warning' ? '#ffb74d' : colors.muted;
+  const color = tone === 'error' ? colors.danger : tone === 'warning' ? colors.warning : colors.muted;
   return <View>
     <Pressable accessibilityRole={expandable ? 'button' : undefined} accessibilityState={expandable ? { expanded: open } : undefined} disabled={!expandable} onPress={() => setOpen(o => !o)} hitSlop={{ top: 6, bottom: 6 }} style={({ pressed }) => ({ minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.55 : 1 })}>
       {busy ? <View style={{ width: 14, alignItems: 'center' }}><Dots size="sm" color={colors.muted} /></View> : <Ionicons name={icon} size={14} color={iconColor ?? color} />}
@@ -99,7 +100,7 @@ function ProcessRow({ icon, iconColor, title, detail, children, load, tone, busy
       {detail ? <T style="caption1" color="tertiary" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{detail}</T> : null}
       {expandable ? <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={11} color={colors.tertiary} /> : null}
     </Pressable>
-    {expandable ? <Collapsible open={open}><View style={{ marginTop: 4, marginLeft: 21, borderRadius: 10, backgroundColor: colors.grouped, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, overflow: 'hidden' }}>{body}</View></Collapsible> : null}
+    {expandable ? <Collapsible open={open}><View style={[paneFinish(colors), { marginTop: 4, marginLeft: 21, borderRadius: 8, overflow: 'hidden' }]}>{body}</View></Collapsible> : null}
   </View>;
 }
 
@@ -128,7 +129,7 @@ export const ChatRow = memo(function ChatRow({ row, onUserAction, highlighted }:
   const loadRange = (from: number, to: number) => steps ? steps.load(from, to) : Promise.resolve([] as WireEvent[]);
   switch (row.kind) {
     case 'user':
-      return <Pressable accessibilityHint={onUserAction ? 'Long-press for rewind and copy' : undefined} delayLongPress={350} onLongPress={onUserAction ? () => onUserAction(row) : undefined} style={({ pressed }) => ({ marginLeft: 40, paddingHorizontal: 12, paddingTop: 7, paddingBottom: 1, backgroundColor: colors.bubble, borderRadius: 17, borderWidth: highlighted ? 1.5 : StyleSheet.hairlineWidth, borderColor: highlighted ? colors.primary : pressed && onUserAction ? colors.glassEdge : colors.border, opacity: pressed && onUserAction ? 0.85 : 1 })}><View style={{ flexDirection: 'row', alignItems: 'center' }}><View style={{ flex: 1 }}><T style="caption2" color="secondary">You</T></View>{onUserAction ? <Pressable accessibilityRole="button" accessibilityLabel="Message actions" hitSlop={10} onPress={() => onUserAction(row)} style={{ paddingHorizontal: 2 }}><Ionicons name="ellipsis-horizontal" size={14} color={colors.tertiary} /></Pressable> : null}</View><MessageMarkdown text={row.text} /></Pressable>;
+      return <Pressable accessibilityHint={onUserAction ? 'Long-press for rewind and copy' : undefined} delayLongPress={350} onLongPress={onUserAction ? () => onUserAction(row) : undefined} style={({ pressed }) => ({ marginLeft: 40, paddingHorizontal: 12, paddingTop: 7, paddingBottom: 1, boxShadow: `inset 0 1px 0 ${colors.rim}`, backgroundColor: colors.bubble, borderRadius: 11, borderWidth: highlighted ? 1.5 : StyleSheet.hairlineWidth, borderColor: highlighted ? colors.primary : pressed && onUserAction ? colors.glassEdge : colors.border, opacity: pressed && onUserAction ? 0.85 : 1 })}><View style={{ flexDirection: 'row', alignItems: 'center' }}><View style={{ flex: 1 }}><T style="caption2" color="secondary">You</T></View>{onUserAction ? <Pressable accessibilityRole="button" accessibilityLabel="Message actions" hitSlop={10} onPress={() => onUserAction(row)} style={{ paddingHorizontal: 2 }}><Ionicons name="ellipsis-horizontal" size={14} color={colors.tertiary} /></Pressable> : null}</View><MessageMarkdown text={row.text} /></Pressable>;
     case 'assistant':
       return <View style={{ gap: 4 }}>
         {row.reasoning ? (row.lite
@@ -140,7 +141,7 @@ export const ChatRow = memo(function ChatRow({ row, onUserAction, highlighted }:
       // Web UI title: "Bash · Watch sync time" — the tool's label plus the agent-written description
       // (or path/query), never the raw command.
       const verb = toolTitle(row.name, row.args).verb; const label = toolLabel(row.name); const summary = toolSummary(row.name, row.args);
-      const title = <Text numberOfLines={1} style={{ fontSize: 13, lineHeight: 18 }}><Text style={{ color: row.isError ? colors.danger : colors.muted, fontWeight: '500' }}>{label}</Text>{summary ? <Text style={{ color: colors.tertiary }}>{'  ·  '}{summary}</Text> : null}{row.approval ? <Text style={{ color: row.approval === 'denied' ? colors.danger : row.approval === 'asked' ? '#ffb74d' : colors.tertiary, fontSize: 11 }}>{'  ·  '}{row.approval === 'asked' ? 'Needs approval' : row.approval === 'allowed' ? 'Allowed' : row.approval === 'denied' ? 'Denied' : 'Approval cancelled'}</Text> : null}</Text>;
+      const title = <Text numberOfLines={1} style={{ fontSize: 13, lineHeight: 18 }}><Text style={{ color: row.isError ? colors.danger : colors.muted, fontWeight: '500' }}>{label}</Text>{summary ? <Text style={{ color: colors.tertiary }}>{'  ·  '}{summary}</Text> : null}{row.approval ? <Text style={{ color: row.approval === 'denied' ? colors.danger : row.approval === 'asked' ? colors.warning : colors.tertiary, fontSize: 11 }}>{'  ·  '}{row.approval === 'asked' ? 'Needs approval' : row.approval === 'allowed' ? 'Allowed' : row.approval === 'denied' ? 'Denied' : 'Approval cancelled'}</Text> : null}</Text>;
       const toolBody = (t: Extract<TranscriptRow, { kind: 'tool' }>) => <>
         {t.images?.length && steps ? t.images.map(im => <AttachmentImage key={im.attachmentId} sessionId={steps.sessionId} image={im} />) : null}
         {t.args ? <Mono label={t.name} text={prettyArgs(t.args)} /> : null}
@@ -162,7 +163,7 @@ export const ChatRow = memo(function ChatRow({ row, onUserAction, highlighted }:
       if (row.lite) return <ProcessRow icon="document-lock-outline" title="System prompt" detail={row.bytes ? `${Math.max(1, Math.round(row.bytes / 4 / 100) / 10)}k tokens` : undefined} load={async () => { const r = fullRow(await loadRange(seq, seq), row.id); return r?.kind === 'system' ? <Mono text={r.text} max={6000} /> : null; }} />;
       return <ProcessRow icon="document-lock-outline" title="System prompt" detail={`${Math.max(1, Math.round(row.text.length / 4 / 100) / 10)}k tokens`}><Mono text={row.text} max={6000} /></ProcessRow>;
     case 'failure':
-      return <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 2 }}><View style={{ width: 7, height: 7, borderRadius: 4, marginTop: 6, backgroundColor: row.warning ? '#ffb74d' : colors.danger }} /><View style={{ flex: 1 }}><T style="footnote" color={row.warning ? 'secondary' : 'danger'} selectable>{row.text}</T></View></View>;
+      return <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 2 }}><View style={{ width: 7, height: 7, borderRadius: 4, marginTop: 6, backgroundColor: row.warning ? colors.warning : colors.danger }} /><View style={{ flex: 1 }}><T style="footnote" color={row.warning ? 'secondary' : 'danger'} selectable>{row.text}</T></View></View>;
     case 'notice':
       return <View style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, flexDirection: 'row', gap: 6, alignItems: 'center' }}><Ionicons name="code-slash-outline" size={13} color={colors.muted} /><T style="footnote" color="secondary">{row.label}</T>{row.text ? <T style="caption1" color="tertiary" numberOfLines={1}>{row.text}</T> : null}</View>;
     case 'turn':

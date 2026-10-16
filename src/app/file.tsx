@@ -96,7 +96,7 @@ export default function FileScreen() {
         </View>
       </View>
         : download !== null ? <LiquidProgress progress={download} label={download >= 1 ? 'Saving…' : `Downloading ${Math.round(download * 100)}%`} />
-        : <Pressable accessibilityRole="button" accessibilityLabel={`Download ${name} to this device`} disabled={!client} onPress={() => void doDownload()} style={({ pressed }) => ({ height: 46, borderRadius: 23, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: pressed ? 0.75 : 1 })}>
+        : <Pressable accessibilityRole="button" accessibilityLabel={`Download ${name} to this device`} disabled={!client} onPress={() => void doDownload()} style={({ pressed }) => ({ height: 46, borderRadius: 11, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: pressed ? 0.75 : 1 })}>
           <Ionicons name="download-outline" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg} styleOverride={{ fontSize: 14 }}>{`Download${bytes ? ` · ${formatSize(bytes)}` : ''}`}</T>
         </Pressable>}
     </View>
@@ -113,7 +113,7 @@ function TextView({ lines, more, wrap }: { lines: string[]; more: boolean; wrap:
   const { colors } = useApp();
   const { width } = useWindowDimensions();
   const gutter = String(lines.length).length * 7 + 14;
-  const bg = colors.dark ? '#111214' : '#fafbfc';
+  const bg = colors.bg;
   const LINE = 17;
   const footer = more ? <T style="caption1" color="secondary" align="center">Showing the first 2,000 lines. Download for the full file.</T> : null;
   const num = (i: number) => <Text style={{ width: gutter, textAlign: 'right', paddingRight: 8, color: colors.tertiary, fontFamily: MONO, fontSize: 11, lineHeight: LINE }}>{i + 1}</Text>;
@@ -138,5 +138,5 @@ function TextView({ lines, more, wrap }: { lines: string[]; more: boolean; wrap:
 
 function Action({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void }) {
   const { colors } = useApp();
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ flex: 1, height: 42, borderRadius: 21, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.6 : 1 })}><Ionicons name={icon} size={16} color={colors.text} /><T style="footnote" weight="600" styleOverride={{ fontSize: 14 }}>{label}</T></Pressable>;
+  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ flex: 1, height: 42, borderRadius: 11, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.6 : 1 })}><Ionicons name={icon} size={16} color={colors.text} /><T style="footnote" weight="600" styleOverride={{ fontSize: 14 }}>{label}</T></Pressable>;
 }

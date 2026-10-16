@@ -48,7 +48,7 @@ export default function Terminal() {
   return <Screen>
     <Header title="Terminal" back><IconButton icon="add" size={20} label="New terminal" onPress={() => void create()} disabled={!client || status !== 'connected'} /></Header>
     {terms && terms.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 12, gap: 6, paddingBottom: 8 }}>
-      {terms.map(t => { const on = t.id === active; return <Pressable key={t.id} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => setActive(t.id)} onLongPress={() => close(t)} style={{ height: 30, flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 10, paddingRight: 4, borderRadius: 15, backgroundColor: on ? colors.fill : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? colors.glassEdge : colors.border }}>
+      {terms.map(t => { const on = t.id === active; return <Pressable key={t.id} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => setActive(t.id)} onLongPress={() => close(t)} style={{ height: 30, flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 10, paddingRight: 4, borderRadius: 8, boxShadow: on ? `inset 0 1px 0 ${colors.rim}` : undefined, backgroundColor: on ? colors.state : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? colors.glassEdge : colors.border }}>
         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.state === 'running' ? colors.live : colors.tertiary }} />
         <T style="caption1" weight={on ? '600' : '400'}>{t.title}</T>
         <Pressable accessibilityRole="button" accessibilityLabel={`Close ${t.title}`} hitSlop={8} onPress={() => close(t)} style={{ padding: 4 }}><Ionicons name="close" size={12} color={colors.muted} /></Pressable>
@@ -56,8 +56,8 @@ export default function Terminal() {
     </ScrollView> : null}
     <ErrorNotice message={error} />
     {terms === null ? <Loading label="Connecting to terminals…" /> : !terms.length ? <View style={{ flex: 1, justifyContent: 'center', gap: 16 }}>
-      <Empty icon="terminal-outline" title="No Terminals" detail="Open a shell in this thread’s workspace. It keeps running on the Harness until you close it." />
-      <Pressable accessibilityRole="button" onPress={() => void create()} style={({ pressed }) => ({ alignSelf: 'center', height: 44, paddingHorizontal: 20, borderRadius: 22, flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: colors.text, opacity: pressed ? 0.7 : 1 })}><Ionicons name="add" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>New Terminal</T></Pressable>
+      <Empty icon="terminal-outline" title="No Terminals" detail="Open a shell in this session’s workspace. It keeps running on the Harness until you close it." />
+      <Pressable accessibilityRole="button" onPress={() => void create()} style={({ pressed }) => ({ alignSelf: 'center', height: 44, paddingHorizontal: 20, borderRadius: 11, flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: colors.text, opacity: pressed ? 0.7 : 1 })}><Ionicons name="add" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg}>New Terminal</T></Pressable>
     </View> : active ? <TerminalView key={active} sessionId={sessionId} id={active} onState={info => setTerms(ts => ts?.map(t => t.id === info.id ? { ...t, ...info } : t) ?? ts)} /> : null}
   </Screen>;
 }
@@ -123,8 +123,8 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
     </View>
     <View style={{ flex: 1, marginHorizontal: 10, borderRadius: 14, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
       <XTerm ref={term} fontSize={fontSize} dark={colors.dark} onInput={onInput} onResize={onResize} onReady={onReady} />
-      {!ready ? <View style={{ position: 'absolute', inset: 0, backgroundColor: colors.dark ? '#0a0a0b' : '#1b1d21' }}><Loading label="Starting terminal…" /></View> : null}
-      {state !== 'running' ? <View style={{ padding: 8, backgroundColor: '#00000066' }}><T style="caption1" color="#ffb74d" align="center">Shell {state}. Open a new terminal to continue.</T></View> : null}
+      {!ready ? <View style={{ position: 'absolute', inset: 0, backgroundColor: colors.bg }}><Loading label="Starting terminal…" /></View> : null}
+      {state !== 'running' ? <View style={{ padding: 8, backgroundColor: colors.panel }}><T style="caption1" color={colors.warning} align="center">Shell {state}. Open a new terminal to continue.</T></View> : null}
     </View>
     <ErrorNotice message={error} />
     <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 8, gap: 6 }}>
@@ -140,5 +140,5 @@ function KeyBtn({ label, onPress, active }: { label: string; onPress: () => void
 }
 function Mini({ label, a11y, onPress }: { label: string; a11y: string; onPress: () => void }) {
   const { colors } = useApp();
-  return <Pressable accessibilityRole="button" accessibilityLabel={a11y} hitSlop={6} onPress={onPress} style={({ pressed }) => ({ height: 28, minWidth: 34, paddingHorizontal: 8, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><Text style={{ color: colors.text, fontSize: 12, fontWeight: '600' }}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={a11y} hitSlop={6} onPress={onPress} style={({ pressed }) => ({ height: 28, minWidth: 34, paddingHorizontal: 8, borderRadius: 8, boxShadow: `inset 0 1px 0 ${colors.rim}`, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><Text style={{ color: colors.text, fontSize: 12, fontWeight: '600' }}>{label}</Text></Pressable>;
 }

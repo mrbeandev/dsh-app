@@ -40,7 +40,7 @@ export function PromptIndex({ sessionId, outline, visible, onClose, onJump }: { 
       onViewableItemsChanged={onViewable} viewabilityConfig={{ itemVisiblePercentThreshold: 10, minimumViewTime: 120 }}
       initialNumToRender={20} windowSize={9}
       contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 24 }}
-      ListEmptyComponent={<View style={{ padding: 24, alignItems: 'center' }}><T style="footnote" color="secondary">{query ? 'No prompts match.' : 'No prompts in this thread yet.'}</T></View>}
+      ListEmptyComponent={<View style={{ padding: 24, alignItems: 'center' }}><T style="footnote" color="secondary">{query ? 'No prompts match.' : 'No prompts in this session yet.'}</T></View>}
       renderItem={({ item, index }) => <PromptRow entry={item} time={knownTime(sessionId, item.seq)} first={index === 0} onPress={() => { onClose(); setTimeout(() => onJump(item), 200); }} />} />
   </Sheet>;
 }

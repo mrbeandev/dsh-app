@@ -56,12 +56,12 @@ export function SheetViewer({ bytes, name }: { bytes: Uint8Array; name: string }
   const html = useMemo(() => `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
 <style>body{margin:0;background:${colors.bg};color:${colors.text};font:12.5px -apple-system,Roboto,sans-serif}
 html,body{height:100%}body{display:flex;flex-direction:column}#tabs{flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;padding:8px;background:${colors.bg}}
-#tabs button{border:1px solid ${colors.border};background:${colors.fill};color:${colors.text};border-radius:14px;padding:5px 12px;font:inherit;white-space:nowrap}
+#tabs button{border:1px solid ${colors.border};background:${colors.fill};color:${colors.text};border-radius:8px;padding:5px 12px;font:inherit;white-space:nowrap}
 #tabs button.on{background:${colors.text};color:${colors.bg}}
 #wrap{flex:1 1 auto;overflow:auto;max-width:100vw}table{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
 td,th{border-right:1px solid ${colors.border};border-bottom:1px solid ${colors.border};padding:4px 8px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
-thead th{position:sticky;top:0;background:${colors.grouped};color:${colors.muted};font-weight:600;z-index:2;text-align:center}thead th:first-child{left:0;z-index:3}
-tbody th{position:sticky;left:0;background:${colors.grouped};color:${colors.muted};font-weight:500}
+thead th{position:sticky;top:0;background:${colors.popover};color:${colors.muted};font-weight:600;z-index:2;text-align:center}thead th:first-child{left:0;z-index:3}
+tbody th{position:sticky;left:0;background:${colors.popover};color:${colors.muted};font-weight:500}
 .note{flex:0 0 auto;padding:6px 12px;color:${colors.muted};font-size:11px}</style></head>
 <body><div id="tabs"></div><div id="wrap"></div><div class="note" id="note"></div>
 <script>${esc(XLSX_JS)}</script>

@@ -54,7 +54,7 @@ export function UpdateSection() {
 export function UpdateBanner() {
   const { colors } = useApp(); const u = useUpdates(); const st = u.state;
   if (st.kind !== 'available' || st.release.version === u.skipped) return null;
-  return <View style={{ marginHorizontal: 12, marginBottom: 6, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 12, paddingRight: 4, minHeight: 40, backgroundColor: colors.dark ? '#1d2a3d' : '#e6efff', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge }}>
+  return <View style={{ marginHorizontal: 12, marginBottom: 6, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 12, paddingRight: 4, minHeight: 40, backgroundColor: colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge }}>
     <Ionicons name="sparkles" size={15} color={colors.primary} />
     <Pressable accessibilityRole="button" style={{ flex: 1, paddingVertical: 9 }} onPress={() => router.push('/settings')}><T style="caption1" weight="600" styleOverride={{ fontSize: 12.5 }}>{`Update to v${st.release.version} available · tap to update`}</T></Pressable>
     <Pressable accessibilityRole="button" accessibilityLabel="Hide this update" hitSlop={8} onPress={u.skip} style={{ padding: 8 }}><Ionicons name="close" size={14} color={colors.muted} /></Pressable>

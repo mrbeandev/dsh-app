@@ -78,14 +78,14 @@ function DialogView({ spec, onDone }: { spec: DialogSpec; onDone: (r: DialogResu
   }, [finish, cancel, buttons]);
 
   const blocked = (b: DialogButton) => !!spec.input?.required && b.style !== 'cancel' && !text.trim();
-  const toneColor = spec.tone === 'danger' ? colors.danger : spec.tone === 'warning' ? '#ffb74d' : spec.tone === 'success' ? colors.live : colors.primary;
+  const toneColor = spec.tone === 'danger' ? colors.danger : spec.tone === 'warning' ? colors.warning : spec.tone === 'success' ? colors.live : colors.primary;
   const stacked = buttons.length > 2;
   const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] });
 
   const btn = (b: DialogButton, i: number) => {
     const destructive = b.style === 'destructive'; const primary = b.style === 'primary'; const disabled = blocked(b);
     const fg = destructive ? colors.danger : primary ? colors.bg : colors.text;
-    return <Pressable key={b.label + i} accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={() => finish(b)} style={({ pressed }) => ({ flex: stacked ? undefined : 1, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, backgroundColor: primary ? colors.text : destructive ? (colors.dark ? '#ff8a8022' : '#c6282814') : colors.fill, borderWidth: primary ? 0 : StyleSheet.hairlineWidth, borderColor: destructive ? (colors.dark ? '#ff8a8055' : '#c6282840') : colors.border, opacity: disabled ? 0.4 : pressed ? 0.65 : 1 })}>
+    return <Pressable key={b.label + i} accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={() => finish(b)} style={({ pressed }) => ({ flex: stacked ? undefined : 1, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, backgroundColor: primary ? colors.text : destructive ? `${colors.danger}18` : colors.fill, borderWidth: primary ? 0 : StyleSheet.hairlineWidth, borderColor: destructive ? `${colors.danger}44` : colors.border, opacity: disabled ? 0.4 : pressed ? 0.65 : 1 })}>
       <T style="footnote" weight={b.style === 'cancel' ? '500' : '600'} color={fg} styleOverride={{ fontSize: 14 }}>{b.label}</T>
     </Pressable>;
   };
@@ -94,7 +94,7 @@ function DialogView({ spec, onDone }: { spec: DialogSpec; onDone: (r: DialogResu
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <Animated.View style={{ flex: 1, backgroundColor: '#00000080', opacity: anim, alignItems: 'center', justifyContent: 'center', padding: 28 }}>
         <Pressable accessibilityLabel="Dismiss" style={StyleSheet.absoluteFill} onPress={cancel ? () => finish(cancel) : undefined} />
-        <Animated.View accessibilityViewIsModal accessibilityRole="alert" style={{ width: '100%', maxWidth: spec.input?.multiline ? 520 : 340, transform: [{ scale }], borderRadius: 24, padding: 18, gap: 14, backgroundColor: colors.dark ? '#242426' : '#fbfcfd', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge, boxShadow: '0 16px 40px #00000066' }}>
+        <Animated.View accessibilityViewIsModal accessibilityRole="alert" style={{ width: '100%', maxWidth: spec.input?.multiline ? 520 : 340, transform: [{ scale }], borderRadius: 18, padding: 18, gap: 14, backgroundColor: colors.dark ? '#1b1b1b' : '#fafbfc', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge, boxShadow: `inset 0 1px 0 ${colors.rim}, 0 16px 40px ${colors.shadow}` }}>
           <View style={{ alignItems: 'center', gap: 8 }}>
             {spec.icon ? <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: `${toneColor}22` }}><Ionicons name={spec.icon} size={22} color={toneColor} /></View> : null}
             <T style="headline" align="center" styleOverride={{ fontSize: 16 }}>{spec.title}</T>

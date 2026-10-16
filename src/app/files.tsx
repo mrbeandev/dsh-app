@@ -6,9 +6,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../state/app';
 import { Empty, ErrorNotice, Header, IconButton, Screen, SearchField, T } from '../components/ui';
 import { errorMessage } from '../lib/harness';
-import { formatSize, listDirectory, mtimeOf, sortEntries, statFile, type FileEntry, type SortDir, type SortKey } from '../lib/workspaceFiles';
+import { formatSize, listDirectory, sortEntries, statFile, type FileEntry, type SortDir, type SortKey } from '../lib/workspaceFiles';
 import { useActionMenu } from '../components/ActionMenu';
 import { relativeTime } from '../lib/time';
+import { cacheEpoch, readDirectoryCache, writeDirectoryCache } from '../lib/cache';
+import { mergeDirectory, refreshFileMetadata, type CachedDirectory, type CachedFileEntry } from '../lib/directoryCache';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 function iconFor(e: FileEntry): IconName {
@@ -26,34 +28,54 @@ function iconFor(e: FileEntry): IconName {
 export default function Files() {
   const { sessionId, root } = useLocalSearchParams<{ sessionId: string; root?: string }>();
   const { client, colors } = useApp();
-  const [path, setPath] = useState(''); const [entries, setEntries] = useState<FileEntry[] | null>(null); const [truncated, setTruncated] = useState(false);
+  const [path, setPath] = useState(''); const [entries, setEntries] = useState<CachedFileEntry[] | null>(null); const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState(''); const [query, setQuery] = useState(''); const [showHidden, setShowHidden] = useState(false);
   const menu = useActionMenu();
   const [sortKey, setSortKey] = useState<SortKey>('updated'); const [sortDir, setSortDir] = useState<SortDir>('desc');
-  // Modified times come from each entry's stat version (one small request per entry, cached per folder).
-  const [mtimes, setMtimes] = useState<Record<string, number>>({});
-
+  const [scanning, setScanning] = useState(false);
   const join = (name: string) => (path ? `${path}/${name}` : name);
   const [reload, setReload] = useState(0);
   useEffect(() => {
-    if (!client) return; let active = true;
-    listDirectory(client, sessionId, path).then(l => { if (!active) return; setError(''); setEntries([...l.entries]); setTruncated(l.truncated); })
-      .catch(e => { if (active) { setError(errorMessage(e)); setEntries([]); } });
-    return () => { active = false; };
+    if (!client) return;
+    let active = true; let writeTimer: ReturnType<typeof setTimeout> | undefined;
+    const url = client.connection.url, scope = sessionId, epoch = cacheEpoch(url);
+    let current: CachedDirectory | null = null;
+    const valid = () => active && epoch === cacheEpoch(url);
+    const show = (value: CachedDirectory) => { if (valid()) { setEntries(value.entries); setTruncated(value.truncated); } };
+    const persist = () => {
+      if (writeTimer) clearTimeout(writeTimer);
+      writeTimer = setTimeout(() => { if (valid() && current) void writeDirectoryCache(url, scope, path, current, epoch).catch(() => {}); }, 200);
+    };
+    void (async () => {
+      // Cache first: no network/stat calls block showing the previous sizes and timestamps.
+      current = await readDirectoryCache(url, scope, path).catch(() => null);
+      if (!valid()) return;
+      if (current) show(current);
+      setScanning(true);
+      try {
+        current = mergeDirectory(await listDirectory(client, sessionId, path), current);
+        if (!valid()) return;
+        show(current); setError(''); persist();
+        await refreshFileMetadata(current.entries,
+          entry => statFile(client, sessionId, path ? `${path}/${entry.name}` : entry.name),
+          entry => {
+            if (!current || !valid()) return;
+            current = { ...current, savedAt: Date.now(), entries: current.entries.map(e => e.name === entry.name ? entry : e) };
+            show(current); persist();
+          }, valid);
+      } catch (e) { if (valid()) { setError(errorMessage(e)); if (!current) setEntries([]); } }
+      finally { if (valid()) { setScanning(false); if (writeTimer) clearTimeout(writeTimer); if (current) void writeDirectoryCache(url, scope, path, current, epoch).catch(() => {}); } }
+    })();
+    return () => {
+      active = false; if (writeTimer) clearTimeout(writeTimer);
+      // Persist results already obtained even if the user leaves before the debounce fires.
+      if (current && epoch === cacheEpoch(url)) void writeDirectoryCache(url, scope, path, current, epoch).catch(() => {});
+    };
   }, [client, sessionId, path, reload]);
-  useEffect(() => {
-    if (!client || !entries?.length) return; let active = true;
-    const need = entries.filter(e => mtimes[join(e.name)] === undefined).slice(0, 300);
-    let i = 0;
-    const worker = async () => { while (active && i < need.length) { const e = need[i++]; try { const st = await statFile(client, sessionId, join(e.name)); const t = mtimeOf(st.version); if (active && t) setMtimes(m => ({ ...m, [join(e.name)]: t })); } catch { /* folders or unreadable: no time */ } } };
-    void Promise.all([worker(), worker(), worker(), worker()]);
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, sessionId, entries]);
   const go = (p: string) => { setEntries(null); setError(''); setPath(p); };
 
   const crumbs = path ? path.split('/').filter(Boolean) : [];
-  const shown = sortEntries((entries ?? []).filter(e => (showHidden || !e.name.startsWith('.')) && e.name.toLowerCase().includes(query.toLowerCase())).map(e => ({ ...e, mtime: mtimes[join(e.name)] })), sortKey, sortDir);
+  const shown = sortEntries((entries ?? []).filter(e => (showHidden || !e.name.startsWith('.')) && e.name.toLowerCase().includes(query.toLowerCase())), sortKey, sortDir);
   // Folders stay on top in name order: the Harness can stat files only, so folders have no time or size.
   const sortLabel = `${sortKey === 'updated' ? 'Last updated' : sortKey === 'name' ? 'Name' : 'Size'} · ${sortKey === 'name' ? (sortDir === 'asc' ? 'A–Z' : 'Z–A') : sortKey === 'updated' ? (sortDir === 'desc' ? 'newest first' : 'oldest first') : (sortDir === 'desc' ? 'largest first' : 'smallest first')}`;
   const openSort = () => menu({ title: 'Sort', subtitle: `${sortLabel}${sortKey === 'name' ? '' : ' · folders stay on top'}`, actions: [
@@ -65,13 +87,14 @@ export default function Files() {
     <Header title="Files" subtitle={root ? root.split('/').filter(Boolean).pop() : undefined} back>
       <IconButton icon="swap-vertical" size={18} label={`Sort: ${sortLabel}`} onPress={openSort} />
       <IconButton icon={showHidden ? 'eye-outline' : 'eye-off-outline'} size={18} label={showHidden ? 'Hide hidden files' : 'Show hidden files'} onPress={() => setShowHidden(v => !v)} />
-      <IconButton icon="refresh" size={18} label="Refresh" onPress={() => { setEntries(null); setReload(r => r + 1); }} />
+      <IconButton icon="refresh" size={18} label="Refresh" onPress={() => { setReload(r => r + 1); }} />
     </Header>
     <View style={{ paddingHorizontal: 12, gap: 8, paddingBottom: 6 }}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: 2 }}>
         <Pressable accessibilityRole="button" onPress={() => go('')} style={{ paddingVertical: 6, paddingHorizontal: 4 }}><T style="footnote" weight="600" color={crumbs.length ? 'secondary' : 'primary'}>Workspace</T></Pressable>
         {crumbs.map((c, i) => <View key={i} style={{ flexDirection: 'row', alignItems: 'center' }}><Ionicons name="chevron-forward" size={11} color={colors.tertiary} /><Pressable accessibilityRole="button" onPress={() => go(crumbs.slice(0, i + 1).join('/'))} style={{ paddingVertical: 6, paddingHorizontal: 4 }}><T style="footnote" weight={i === crumbs.length - 1 ? '600' : '400'} color={i === crumbs.length - 1 ? 'primary' : 'secondary'}>{c}</T></Pressable></View>)}
       </ScrollView>
+      {scanning ? <T style="caption2" color="secondary">Updating file sizes and dates…</T> : null}
       <SearchField value={query} onChangeText={setQuery} placeholder="Filter this folder" />
       <Pressable accessibilityRole="button" onPress={openSort} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 }}><Ionicons name="swap-vertical" size={12} color={colors.muted} /><T style="caption1" color="secondary">{sortLabel}</T></Pressable>
     </View>

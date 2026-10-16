@@ -15,7 +15,7 @@ export const SubagentToggle = memo(function SubagentToggle({ nodes, open, onTogg
   if (!nodes.length) return null;
   const working = anyRunning(nodes);
   return <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${countTree(nodes)} subagents${working ? ', working' : ''}. ${open ? 'Hide' : 'Show'}`} hitSlop={8} onPress={onToggle}
-    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, height: 22, borderRadius: 11, backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}>
+    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, height: 22, borderRadius: 6, borderWidth: 0.5, borderColor: colors.glassEdge, boxShadow: `inset 0 1px 0 ${colors.rim}`, backgroundColor: open ? colors.state : colors.fill, opacity: pressed ? 0.6 : 1 })}>
     <Ionicons name="git-branch-outline" size={11} color={working ? colors.live : colors.muted} />
     <T style="caption2" color={working ? colors.live : 'secondary'} styleOverride={{ fontVariant: ['tabular-nums'] }}>{String(countTree(nodes))}</T>
     <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={10} color={colors.tertiary} />

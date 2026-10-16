@@ -44,7 +44,7 @@ export function SyncStatus() {
   };
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   return <Pressable accessibilityRole="button" accessibilityLabel={`${label}. Sync now`} onPress={() => void onPress()} hitSlop={10} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 6, opacity: pressed ? 0.55 : 1 })}>
-    <Animated.View style={{ transform: [{ rotate }] }}><Ionicons name="sync-outline" size={12} color={stale && !busy ? '#ffb74d' : colors.muted} /></Animated.View>
-    <T style="footnote" color={stale && !busy ? '#ffb74d' : 'secondary'} numberOfLines={1}>{label}</T>
+    <Animated.View style={{ transform: [{ rotate }] }}><Ionicons name="sync-outline" size={12} color={stale && !busy ? colors.warning : colors.muted} /></Animated.View>
+    <T style="footnote" color={stale && !busy ? colors.warning : 'secondary'} numberOfLines={1}>{label}</T>
   </Pressable>;
 }

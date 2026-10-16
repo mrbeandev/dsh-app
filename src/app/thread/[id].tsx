@@ -37,12 +37,14 @@ import { liteEvent } from '../../lib/lite';
 import { coverage, eventsBetween, putEvents } from '../../lib/eventStore';
 import { backfill, turnEvents } from '../../lib/historySync';
 import { StepDetailContext } from '../../components/stepDetail';
+import { rememberSession } from '../../lib/recentSession';
 
 /** List anchoring (keeps your place as new messages arrive); paused while a row expands. */
 const MVCP = { minIndexForVisible: 0, autoscrollToTopThreshold: 80 } as const;
 export default function Thread() {
   const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status } = useApp();
   const harnessUrl = harness ?? client?.connection.url ?? savedUrl;
+  useFocusEffect(useCallback(() => { if (id && harnessUrl) void rememberSession(harnessUrl, id); }, [id, harnessUrl]));
   // 'loading' until either the local cache or the live snapshot answers; the skeleton shows meanwhile.
   const [historyState, setHistoryState] = useState<'loading' | 'cached' | 'live'>('loading');
   const history = useRef<CachedHistory>({ records: [], cursor: -1, hasMore: false, savedAt: 0 });
@@ -154,7 +156,7 @@ export default function Thread() {
     const seq = Number(row.id);
     menu({ title: 'Your message', subtitle: row.text.length > 90 ? `${row.text.slice(0, 90)}…` : row.text, actions: [
       { label: 'Rewind to Here', icon: 'arrow-undo-outline', detail: 'Remove this message and everything after it, then edit and resend', onPress: () => { void (async () => {
-        const ok = await dialog.confirm({ title: 'Rewind to this message?', message: 'This message and everything after it are removed from the conversation, and the message goes back into the composer to edit and resend.\n\nThe old thread is archived on the Harness, not deleted. Files the agent changed are not restored.', confirm: 'Rewind', destructive: true, icon: 'arrow-undo-outline' });
+        const ok = await dialog.confirm({ title: 'Rewind to this message?', message: 'This message and everything after it are removed from the conversation, and the message goes back into the composer to edit and resend.\n\nThe old session is archived on the Harness, not deleted. Files the agent changed are not restored.', confirm: 'Rewind', destructive: true, icon: 'arrow-undo-outline' });
         if (!ok || !client) return;
         try {
           const r = await rewindTo(client, { sessionId: id, targetSeq: seq, text: row.text, title: session ? sessionTitle(session) : undefined, running: running || !!session?.running, records });
@@ -301,7 +303,7 @@ export default function Thread() {
       <GlassTarget target={target}>
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
         {historyState === 'loading' && !rows.length ? <View style={{ flex: 1, paddingHorizontal: 14, paddingTop: 62 }}><SkeletonChat /></View>
-        : !rows.length && !working ? <View style={{ flex: 1, justifyContent: 'center', paddingTop: 62 }}><Empty icon="sparkles-outline" title="New Thread" detail="Describe a task or ask a question. Your Harness does the rest." /></View>
+        : !rows.length && !working ? <View style={{ flex: 1, justifyContent: 'center', paddingTop: 62 }}><Empty icon="sparkles-outline" title="New Session" detail="Describe a task or ask a question. Your Harness does the rest." /></View>
         : <Animated.View style={{ flex: 1, opacity: fade }}><ChatScrollContext.Provider value={chatScroll}><StepDetailContext.Provider value={steps}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
           // Inverted: the footer renders at the visual bottom (live text, pending requests), the header at the top.
           maintainVisibleContentPosition={anchorHolds ? undefined : MVCP}
@@ -326,12 +328,12 @@ export default function Thread() {
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
-          <Header title={session ? (isSubagent ? sub.label : sessionTitle(session)) : 'Thread'} subtitle={isSubagent ? `Subagent${readOnly ? ' · one-shot' : ''}${subtitle ? ` · ${subtitle}` : ''}` : subtitle || undefined} back>
-            {isSubagent && session?.parentSessionId ? <IconButton icon="git-branch-outline" size={18} label="Open parent thread" onPress={() => router.push({ pathname: '/thread/[id]', params: { id: session.parentSessionId!, harness: harnessUrl } })} /> : null}
+          <Header title={session ? (isSubagent ? sub.label : sessionTitle(session)) : 'Session'} subtitle={isSubagent ? `Subagent${readOnly ? ' · one-shot' : ''}${subtitle ? ` · ${subtitle}` : ''}` : subtitle || undefined} back>
+            {isSubagent && session?.parentSessionId ? <IconButton icon="git-branch-outline" size={18} label="Open parent session" onPress={() => router.push({ pathname: '/thread/[id]', params: { id: session.parentSessionId!, harness: harnessUrl } })} /> : null}
             {outline.length ? <IconButton icon="list-outline" size={18} label="Prompts" onPress={() => setPromptsOpen(true)} /> : null}
             <IconButton icon="folder-open-outline" size={18} label="Files" onPress={() => router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd } })} />
             <IconButton icon="terminal-outline" size={18} label="Terminal" onPress={() => router.push({ pathname: '/terminal', params: { sessionId: id } })} />
-            <IconButton icon="ellipsis-horizontal" size={18} label="Thread details" onPress={() => router.push({ pathname: '/thread/details', params: { id } })} />
+            <IconButton icon="ellipsis-horizontal" size={18} label="Session details" onPress={() => router.push({ pathname: '/thread/details', params: { id } })} />
           </Header>
         </GlassTargetProvider>
       </View>

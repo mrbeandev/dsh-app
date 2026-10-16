@@ -9,6 +9,10 @@ This project’s UI is adapted from the design tokens and screen patterns of T3 
 
 No affiliation or endorsement is implied. Upstream logos, names, service access, or trademarks are not licensed by the MIT software license. The app uses its own DSH name rather than T3 branding. Package dependencies retain their own licenses; consult their distributed package notices before shipping binaries.
 
+## Solid Glass design system
+
+The native theme adapts the palettes, pane hierarchy, edge treatment, control geometry and composer styling of [Solid Glass](https://github.com/deeplethe/solid-glass), Copyright (c) 2026 DeepLethe, under the [MIT licence](licenses/solid-glass-MIT.txt). This is a React Native adaptation, not a bundled shadcn/Base UI implementation. No affiliation or endorsement is implied.
+
 ## Bundled viewer libraries
 
 These are embedded (as generated modules in `src/web-assets/`, produced by `scripts/build-web-assets.mjs`) so the terminal and file viewers work offline:
