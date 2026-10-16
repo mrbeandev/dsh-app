@@ -15,8 +15,7 @@
           "NSAllowsArbitraryLoads": true
         },
         "NSLocalNetworkUsageDescription": "Connect to your DeepSeek Harness on your local network."
-      },
-      "icon": "./assets/icon.png"
+      }
     },
     "android": {
       "package": "dev.mrbean.dshapp",
