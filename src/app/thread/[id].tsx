@@ -50,6 +50,12 @@ export default function Thread() {
   useFocusEffect(useCallback(() => { if (id && harnessUrl) void rememberSession(harnessUrl, id); }, [id, harnessUrl]));
   // 'loading' until either the local cache or the live snapshot answers; the skeleton shows meanwhile.
   const [historyState, setHistoryState] = useState<'loading' | 'cached' | 'live'>('loading');
+  // Offline warning only when the Harness is really unreachable; while Live but before the first
+  // snapshot lands we're merely syncing, so cached rows get a sync indicator instead.
+  const offlineCache = status === 'offline' || status === 'disconnected' || status === 'cached';
+  // A failed follow request ends the sync wait so the composer is never stuck disabled.
+  const [syncFailed, setSyncFailed] = useState(false);
+  const syncingLive = !offlineCache && historyState !== 'live' && !syncFailed;
   const history = useRef<CachedHistory>({ records: [], cursor: -1, hasMore: false, savedAt: 0 });
   const scrollY = useRef(0);
   const [anchorHolds, setAnchorHolds] = useState(0);
@@ -90,9 +96,9 @@ export default function Thread() {
     liveChunks.current.clear();
     if (!client || client.connection.url !== harnessUrl) return () => { active = false; };
     const stop = client.follow('session/follow', { request: { address, maxMessages: 24, assistantStream: true } }, frame => {
-      if (frame.type === 'stream-error') { setError(frame.error.message); return; }
+      if (frame.type === 'stream-error') { setError(frame.error.message); setSyncFailed(true); return; }
       if (frame.type === 'snapshot') {
-        receivedLive = true; setHistoryState('live');
+        receivedLive = true; setHistoryState('live'); setSyncFailed(false);
         // The snapshot carries this thread's current projections (queue/inbox, todos, goal…): apply them
         // so the composer strip is right the moment the chat opens.
         if (frame.projections?.values) applyProjections(id, frame.projections.values);
@@ -331,9 +337,11 @@ export default function Thread() {
       <ErrorNotice message={deviceOffline ? '' : error} />
       <GlassTargetProvider value={target}>
         {/* Only when actually disconnected: while Live, cached rows are just the brief warm-up before the fresh history arrives. */}
-        {status === 'offline' || status === 'disconnected' || status === 'cached' ? <View accessibilityRole="alert" style={{ marginHorizontal: 12, marginBottom: 6, padding: 10, borderRadius: 10, flexDirection: 'row', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.warning }}><Ionicons name="warning-outline" size={18} color={colors.warning} /><View style={{ flex: 1 }}><T style="caption1" weight="600" color={colors.warning}>{deviceOffline ? 'Device offline · Local cache' : 'Showing local cache'}</T><T style="caption1" color="secondary">Connect to your Harness to get the latest chat data.</T></View></View> : null}
+        {/* Live but the latest history is still in flight: show a sync state, not the offline warning. */}
+        {syncingLive ? <View accessibilityRole="progressbar" accessibilityLabel="Syncing latest messages" accessibilityLiveRegion="polite" style={{ marginHorizontal: 12, marginBottom: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.glassEdge }}><Dots size="sm" /><T style="caption1" color="secondary">Syncing latest messages…</T></View> : null}
+        {offlineCache ? <View accessibilityRole="alert" style={{ marginHorizontal: 12, marginBottom: 6, padding: 10, borderRadius: 10, flexDirection: 'row', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.warning }}><Ionicons name="warning-outline" size={18} color={colors.warning} /><View style={{ flex: 1 }}><T style="caption1" weight="600" color={colors.warning}>{deviceOffline ? 'Device offline · Local cache' : 'Showing local cache'}</T><T style="caption1" color="secondary">Connect to your Harness to get the latest chat data.</T></View></View> : null}
         <ComposerContext sessionId={id} running={running} values={(session?.projections?.values as Record<string, any>) ?? {}} />
-        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected'} onStop={stopTurn}  />}
+        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected' || syncingLive} onStop={stopTurn}  />}
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
