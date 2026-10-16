@@ -12,11 +12,16 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/hig-home.png" width="200" alt="Workspaces and threads">
-  <img src=".github/assets/hig-chat.png" width="200" alt="Chat">
-  <img src=".github/assets/details-1.png" width="200" alt="Thread details">
-  <img src=".github/assets/prompt-index.png" width="200" alt="Prompt list">
+  <img src=".github/assets/solid-home.png" width="200" alt="Solid Glass workspaces and sample sessions">
+  <img src=".github/assets/solid-chat.png" width="200" alt="Live chat with Markdown in the Solid Glass theme">
+  <img src=".github/assets/solid-details.png" width="200" alt="Session details and context usage">
 </p>
+<p align="center">
+  <img src=".github/assets/solid-new-session.png" width="200" alt="Compact New Session form with access and persona selectors">
+  <img src=".github/assets/solid-imports.png" width="200" alt="Grouped image, video, audio, PDF and document imports">
+</p>
+
+Screenshots captured from the Android app with sample conversations on a test Harness (October 2026). Device status-bar notifications are cropped out.
 
 > Independent community project. Not affiliated with or endorsed by DeepSeek or T3.
 
@@ -41,7 +46,7 @@ The app exchanges the token for a session cookie, exactly like the DSH Web UI. T
 
 ## Features
 
-**Threads and chat**
+**Sessions and chat**
 - Workspace tree sorted by last activity, live dot on working threads, pin and archive.
 - Live streaming replies with Markdown, code blocks (copy), quotes and inline code.
 - Tool calls, reasoning, context and compaction shown as compact rows; finished turns fold into *Completed in 4m 5s*.
@@ -58,7 +63,7 @@ The app exchanges the token for a session cookie, exactly like the DSH Web UI. T
 - **Terminal** — a real terminal emulator (xterm.js): colours, full-screen programs like `top`/`vim`, a key bar (Ctrl, Esc, Tab, arrows) and adjustable font size.
 - Add, rename and remove workspaces; new threads with access mode and persona.
 
-**Built for mobile** — per-Harness cache (SQLite) for instant start and offline reading; only the open thread streams live. Glass-style UI following Apple's Human Interface Guidelines, light and dark.
+**Built for mobile** — per-Harness cache (SQLite) for instant start and offline reading; only the open thread streams live. Native [Solid Glass](https://github.com/deeplethe/solid-glass) styling in light and dark.
 
 **In-app updates** — checks GitHub Releases in the background, downloads the new APK with progress, and hands it to Android's installer. You confirm the install.
 
