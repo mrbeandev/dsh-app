@@ -63,13 +63,13 @@ export function GlassCluster({ children, style }: { children: React.ReactNode; s
  * Compact navigation bar. Controls float as glass capsules over a scroll-edge fade,
  * leaving the content layer untouched (HIG: Materials, Scroll views).
  */
-export function Header({ title, subtitle, back = false, large = false, leading, children }: { title: string; subtitle?: string; back?: boolean; compact?: boolean; large?: boolean; leading?: React.ReactNode; children?: React.ReactNode }) {
+export function Header({ title, subtitle, back = false, large = false, leading, logo, children }: { title: string; subtitle?: string; logo?: React.ReactNode; back?: boolean; compact?: boolean; large?: boolean; leading?: React.ReactNode; children?: React.ReactNode }) {
   // One slim glass bar holding back · title · actions (matches the approved prototype).
   return <View style={s.header}>
     <Glass radius={14} style={{ flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, gap: 2 }}>
       {back ? <IconButton icon="chevron-back" size={20} label="Back" onPress={() => router.canGoBack() ? router.back() : router.replace('/')} /> : leading ?? <View style={{ width: 10 }} />}
       <View style={{ flex: 1, paddingHorizontal: 4, paddingVertical: subtitle ? 4 : 0, justifyContent: 'center' }}>
-        <T style={large ? 'title3' : 'subhead'} weight="600" numberOfLines={1}>{title}</T>
+        {logo ?? <T style={large ? 'title3' : 'subhead'} weight="600" numberOfLines={1}>{title}</T>}
         {subtitle ? <T style="caption2" color="secondary" numberOfLines={1}>{subtitle}</T> : null}
       </View>
       {children}

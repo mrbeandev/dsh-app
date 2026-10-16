@@ -3,6 +3,7 @@ import { randomUUID } from 'expo-crypto';
 import { Connection, endpoint, Frame, normalizeConnection, rpcEnvelope } from './protocol';
 import { attachBinary, parseMultipart } from './multipart';
 import { diagnostic } from './diagnostics';
+import { friendlyNetworkError } from './connectivity';
 
 export class HarnessError extends Error {
   constructor(public code: string, message: string) { super(message); }
@@ -15,6 +16,12 @@ export class HarnessClient {
   private nextStream = 0;
   private retry: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
+  private networkPaused = false;
+  setNetworkOffline(offline: boolean) {
+    this.networkPaused = offline;
+    if (offline) { clearTimeout(this.retry); this.socket?.close(); }
+    else if (!this.closed && !this.socketOpen) this.connectStreams();
+  }
   private attempts = 0;
   clientId = '';
   onStatus: (status: 'connected' | 'reconnecting' | 'disconnected') => void = () => {};
@@ -87,6 +94,7 @@ export class HarnessClient {
     return attachBinary(metadata, parts);
   }
   connectStreams() {
+    if (this.networkPaused) return;
     this.closed = false;
     const url = endpoint(this.connection.url, '/api/remote.mux').replace(/^http/, 'ws');
     const Socket = WebSocket as any;
@@ -105,7 +113,7 @@ export class HarnessClient {
     };
     this.socket!.onclose = () => {
       this.clientId = '';
-      if (!this.closed) {
+      if (!this.closed && !this.networkPaused) {
         diagnostic('socket.state', { status: 'reconnecting' }); this.onStatus('reconnecting');
         this.retry = setTimeout(() => this.connectStreams(), Math.min(1000 * 2 ** this.attempts++, 15000));
       }
@@ -132,4 +140,4 @@ export class HarnessClient {
     this.closed = true; clearTimeout(this.retry); this.streams.clear(); this.socket?.close(); this.socket = null; this.clientId = ''; this.onStatus('disconnected');
   }
 }
-export function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Something went wrong. Please try again.'; }
+export function errorMessage(error: unknown) { return error instanceof Error ? friendlyNetworkError(error.message) : 'Something went wrong. Please try again.'; }

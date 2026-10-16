@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState as RNAppState, Platform, useColorScheme } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import * as Network from 'expo-network';
+import { deviceIsOffline } from '../lib/connectivity';
 import { HarnessClient } from '../lib/harness';
 import { Connection, Frame, Session } from '../lib/protocol';
 import { applyBaseline, mergeRefreshed, withValues } from '../lib/projections';
@@ -8,10 +10,12 @@ import { cacheEpoch, readCatalog, writeCatalog, clearWorkspaceHistory } from '..
 import { light, dark, type SolidGlassColors } from '../lib/solidGlass';
 type ThemeMode = 'system' | 'light' | 'dark';
 export type Colors = SolidGlassColors;
-type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
+type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; deviceOffline: boolean; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
 const credentials = { read: async () => Platform.OS === 'web' ? null : SecureStore.getItemAsync('dsh.connection'), save: async (c: Connection) => { if (Platform.OS !== 'web') await SecureStore.setItemAsync('dsh.connection', JSON.stringify(c)); }, clear: async () => { if (Platform.OS !== 'web') await SecureStore.deleteItemAsync('dsh.connection'); } };
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const [deviceOffline, setDeviceOffline] = useState(false);
+  const offlineRef = useRef(false);
   const [client, setClient] = useState<HarnessClient | null>(null); const current = useRef<HarnessClient | null>(null);
   // Live running/idle transitions straight from the Harness event, before any list refresh can hide them.
   const statusListeners = useRef(new Set<(id: string, running: boolean) => void>());
@@ -28,7 +32,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const refreshFlight = useRef<Promise<void> | null>(null);
   const persist = useCallback(() => { const c = current.current; if (c) void writeCatalog({ url: c.connection.url, ...catalog.current, savedAt: Date.now() }).catch(() => {}); }, []);
   const refresh = useCallback(async () => {
-    const c = current.current; if (!c) return;
+    const c = current.current; if (!c || offlineRef.current) return;
     if (refreshFlight.current) return refreshFlight.current;
     const epoch = cacheEpoch(c.connection.url);
     const task = (async () => {
@@ -90,10 +94,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   /** Sync now: reconnect the live socket if it dropped, then reload threads and workspaces. */
   const resync = useCallback(async () => {
-    const c = current.current; if (!c) return;
+    const c = current.current; if (!c || offlineRef.current) return;
     c.reconnectNow();
     await refresh();
   }, [refresh]);
+  useEffect(() => {
+    let active = true;
+    const update = (state: Network.NetworkState) => {
+      if (!active) return;
+      const offline = deviceIsOffline(state), wasOffline = offlineRef.current;
+      offlineRef.current = offline; setDeviceOffline(offline);
+      current.current?.setNetworkOffline(offline);
+      if (offline) setStatus('offline');
+      else if (wasOffline) {
+        const c = current.current;
+        if (c) { setStatus('reconnecting'); void resync().catch(() => setStatus('offline')); }
+        else void credentials.read().then(value => { if (active && value) return connect(JSON.parse(value)); }).catch(() => { if (active) setStatus('offline'); });
+      }
+    };
+    void Network.getNetworkStateAsync().then(update).catch(() => {});
+    const subscription = Network.addNetworkStateListener(update);
+    return () => { active = false; subscription.remove(); };
+  }, [connect, resync]);
   // Light heartbeat while the app is open: re-check every 30 s if nothing arrived meanwhile, so the
   // "synced … ago" time stays honest and a silently dropped connection is noticed.
   useEffect(() => {
@@ -110,8 +132,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!active || !value) return; const c = JSON.parse(value); setSavedUrl(c.url);
     const cached = await readCatalog(c.url).catch(() => null);
     if (active && cached) { catalog.current = { sessions: cached.sessions.map(s => ({ ...s, running: false })), workspaces: cached.workspaces }; setSessions(catalog.current.sessions); setWorkspaces(cached.workspaces); setLoading(false); setStatus('cached'); }
-    if (active) await connect(c);
+    const network = await Network.getNetworkStateAsync().catch(() => null);
+    if (network && deviceIsOffline(network)) { offlineRef.current = true; setDeviceOffline(true); setStatus('offline'); }
+    else if (active) await connect(c);
   }).catch(() => setStatus('offline')).finally(() => { if (active) setLoading(false); }); return () => { active = false; current.current?.disconnect(); }; }, [connect]);
-  return <Context.Provider value={{ onSessionStatus, lastSync, resync, applyProjections, client, sessions, workspaces, archived, pinned, status, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ onSessionStatus, lastSync, resync, applyProjections, client, sessions, workspaces, archived, pinned, status: deviceOffline ? 'offline' : status, deviceOffline, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
 }
 export function useApp() { const value = useContext(Context); if (!value) throw new Error('AppProvider missing'); return value; }

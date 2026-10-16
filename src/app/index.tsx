@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
+import { Image, Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 import { SkeletonRows } from '../components/Loader';
 import { UpdateBanner } from '../components/UpdateCard';
 import { SyncStatus } from '../components/SyncStatus';
@@ -23,7 +23,7 @@ type Filter = 'All' | 'Working';
 
 /** Workspace tree home — layout and palette follow the approved glass prototype (screen 01). */
 export default function Home() {
-  const { colors, sessions, workspaces, archived, pinned, client, status, savedUrl, loading, refresh, refreshWorkspace, pending } = useApp();
+  const { colors, sessions, workspaces, archived, pinned, client, status, deviceOffline, savedUrl, loading, refresh, refreshWorkspace, pending } = useApp();
   const insets = useSafeAreaInsets();
   const target = useRef<View>(null);
   const [query, setQuery] = useState(''); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState('');
@@ -67,8 +67,8 @@ export default function Home() {
   const workspaceMenu = (section: { id: string; title: string; path: string; sessions: { sessionId: string }[] }) => {
     const real = !section.id.startsWith('path:'); const first = section.sessions[0]?.sessionId;
     menu({ title: section.title, subtitle: section.path, actions: [
-      ...(first ? [{ label: 'Browse Files', icon: 'folder-open-outline' as const, onPress: () => router.push({ pathname: '/files', params: { sessionId: first, root: section.path } }) }, { label: 'Open Terminal', icon: 'terminal-outline' as const, onPress: () => router.push({ pathname: '/terminal', params: { sessionId: first } }) }] : []),
       { label: 'New Session Here', icon: 'add-circle-outline', onPress: () => router.push({ pathname: '/new', params: { cwd: section.path } }) },
+      ...(first ? [{ label: 'Browse Files', icon: 'folder-open-outline' as const, onPress: () => router.push({ pathname: '/files', params: { sessionId: first, root: section.path } }) }, { label: 'Open Terminal', icon: 'terminal-outline' as const, onPress: () => router.push({ pathname: '/terminal', params: { sessionId: first } }) }] : []),
       ...(real ? [{ label: 'Rename', icon: 'pencil-outline' as const, onPress: () => { void dialog.prompt({ title: 'Rename Workspace', initial: section.title, placeholder: 'Workspace name', confirm: 'Rename' }).then(t => { if (t) act(() => client!.call('workspace/rename', { request: { workspaceId: section.id, title: t } })); }); } }] : []),
       { label: 'Refresh Cache', icon: 'refresh-outline', detail: 'Chats download again only when opened', onPress: () => { void refreshWorkspace(section.sessions.map(x => x.sessionId)).catch(e => setError(errorMessage(e))); } },
       ...(real ? [{ label: 'Remove Workspace', icon: 'trash-outline' as const, destructive: true, detail: 'Removes it from the list; files stay on disk', onPress: () => confirm(`Remove ${section.title}?`, 'The folder and its files stay on the Harness. Only the workspace entry is removed.', 'Remove', () => act(() => client!.call('workspace/delete', { request: { workspaceId: section.id } }))) }] : []),
@@ -109,23 +109,27 @@ export default function Home() {
             <View style={{ flex: 1 }} />
           </View>
         </View></>}
-        renderSectionHeader={({ section }) => { const open = isOpen(section.id); const runningHere = section.sessions.some(x => live && x.running); return <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 6, marginTop: 8 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} sessions`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
+        renderSectionHeader={({ section }) => { const open = isOpen(section.id); const runningHere = section.sessions.some(x => live && x.running); return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 4, marginHorizontal: 12, marginTop: 7, marginBottom: open ? 3 : 0, borderRadius: 11, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, boxShadow: `inset 0 1px 0 ${colors.rim}` }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} sessions`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 32, paddingHorizontal: 5, borderRadius: 8, backgroundColor: pressed ? colors.state : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
             <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={colors.muted} style={{ width: 12 }} />
             <Ionicons name={open ? 'folder-open-outline' : 'folder-outline'} size={14} color={colors.muted} />
             <T style="subhead" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{section.title}</T>
             <T style="caption1" color="secondary">{section.sessions.length}</T>
             {!open && runningHere ? <View accessibilityLabel="Has a live session" style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live }} /> : null}
           </Pressable>
-          <IconButton icon="ellipsis-horizontal" size={17} tint={colors.muted} label={`Options for ${section.title}`} onPress={() => workspaceMenu(section)} />
+          <WorkspaceAction icon="add" label={`New session in ${section.title}`} disabled={!client || !live} onPress={() => router.push({ pathname: '/new', params: { cwd: section.path } })} />
+          <WorkspaceAction icon="ellipsis-horizontal" label={`Options for ${section.title}`} onPress={() => workspaceMenu(section)} />
         </View>; }}
-        renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(10, section.more)} more sessions in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 19, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(10, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
-        renderItem={({ item }) => {
+        renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(10, section.more)} more sessions in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 29, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(10, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
+        renderItem={({ item, index, section }) => {
           const active = item.running && live; const attention = pending.some(p => p.agentId === item.sessionId);
           const finished = !active && !attention && unseen.has(item.sessionId);
           const tree = subagentTree(item, subIndex, byId);
-          return <View style={{ marginLeft: 19, paddingLeft: 10, paddingRight: 12, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator }}>
-            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 38, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
+          return <View style={{ marginLeft: 29, paddingLeft: 15, marginRight: 12, paddingBottom: 3 }}>
+            <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: index === section.data.length - 1 && !section.more ? 19 : 0, width: 1, backgroundColor: colors.border }} />
+            <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 16, width: 15, height: 1, backgroundColor: colors.border }} />
+            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: pressed ? colors.state : colors.panel })}>
+              <Ionicons name="chatbubble-outline" size={13} color={colors.tertiary} />
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: attention ? colors.warning : active ? colors.live : finished ? (colors.success) : 'transparent' }} />
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>
               {pinned.includes(item.sessionId) ? <Ionicons name="pin" size={11} color={colors.muted} /> : null}
@@ -140,14 +144,14 @@ export default function Home() {
           {!client && !sessions.length ? <View style={{ paddingHorizontal: 48 }}><Button title="Connect" onPress={() => router.push('/connect')} /></View> : null}
         </View>}
       />}
-      <ErrorNotice message={error} />
+      <ErrorNotice message={deviceOffline ? '' : error} />
     </GlassTarget>
 
     {/* Floating control layer */}
     <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top, left: 0, right: 0 }}>
       <ScrollEdge height={64} />
       <GlassTargetProvider value={target}>
-        <Header title="DSH" large leading={<View style={{ width: 8 }} />}>
+        <Header title="DSH" large leading={<View style={{ width: 8 }} />} logo={<View accessible accessibilityRole="header" accessibilityLabel="DSH" style={{ flexDirection: 'row', alignItems: 'center' }}><Image source={require('../../assets/brand/header-logo.png')} style={{ width: 34, height: 34 }} resizeMode="contain" /></View>}>
           {client ? <IconButton icon="folder-open-outline" size={19} label="Add workspace" onPress={() => router.push('/workspace-new')} /> : null}
           <IconButton icon="settings-outline" size={19} label="Settings" onPress={() => router.push('/settings')} />
         </Header>
@@ -161,4 +165,13 @@ export default function Home() {
       </GlassTargetProvider>
     </View> : null}
   </Screen>;
+}
+
+/** Independent workspace actions: bordered compact buttons, with 44pt-wide touch targets. */
+function WorkspaceAction({ icon, label, onPress, disabled }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void; disabled?: boolean }) {
+  const { colors } = useApp();
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} hitSlop={{ top: 4, bottom: 4 }}
+    style={({ pressed }) => ({ width: 34, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: pressed ? colors.state : colors.panel, opacity: disabled ? 0.35 : pressed ? 0.65 : 1 })}>
+    <Ionicons name={icon} size={18} color={colors.text} />
+  </Pressable>;
 }

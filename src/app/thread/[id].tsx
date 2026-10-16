@@ -45,7 +45,7 @@ import { diagnostic } from '../../lib/diagnostics';
 /** List anchoring (keeps your place as new messages arrive); paused while a row expands. */
 const MVCP = { minIndexForVisible: 0, autoscrollToTopThreshold: 80 } as const;
 export default function Thread() {
-  const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status } = useApp();
+  const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status, deviceOffline } = useApp();
   const harnessUrl = harness ?? client?.connection.url ?? savedUrl;
   useFocusEffect(useCallback(() => { if (id && harnessUrl) void rememberSession(harnessUrl, id); }, [id, harnessUrl]));
   // 'loading' until either the local cache or the live snapshot answers; the skeleton shows meanwhile.
@@ -328,8 +328,9 @@ export default function Thread() {
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
       </GlassTarget>
-      <ErrorNotice message={error} />
+      <ErrorNotice message={deviceOffline ? '' : error} />
       <GlassTargetProvider value={target}>
+        {status !== 'connected' || historyState !== 'live' ? <View accessibilityRole="alert" style={{ marginHorizontal: 12, marginBottom: 6, padding: 10, borderRadius: 10, flexDirection: 'row', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.warning }}><Ionicons name="warning-outline" size={18} color={colors.warning} /><View style={{ flex: 1 }}><T style="caption1" weight="600" color={colors.warning}>{deviceOffline ? 'Device offline · Local cache' : 'Showing local cache'}</T><T style="caption1" color="secondary">Connect to your Harness to get the latest chat data.</T></View></View> : null}
         <ComposerContext sessionId={id} running={running} values={(session?.projections?.values as Record<string, any>) ?? {}} />
         {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected'} onStop={stopTurn}  />}
       </GlassTargetProvider>
