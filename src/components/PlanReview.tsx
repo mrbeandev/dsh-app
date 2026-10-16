@@ -36,7 +36,7 @@ export function PlanReview({ frame }: { frame: Frame }) {
     const feedback = await dialog.prompt({ title: 'Keep Planning', message: 'Tell the agent what to change. Leave it as is to just ask for a revision.', placeholder: 'What should change in the plan?', confirm: 'Send Feedback', multiline: true, optional: true });
     if (feedback !== null) await send('keep', feedback);
   };
-  return <View style={{ borderRadius: 16, overflow: 'hidden', backgroundColor: colors.grouped, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge }}>
+  return <View style={{ borderRadius: 16, overflow: 'hidden', boxShadow: `inset 0 1px 0 ${colors.rim}`, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8 }}>
       <Ionicons name="map-outline" size={16} color={colors.primary} />
       <View style={{ flex: 1 }}><T style="caption2" color="secondary">Plan review</T><T style="footnote" weight="600" numberOfLines={2} styleOverride={{ fontSize: 14 }}>{title}</T></View>
@@ -58,7 +58,7 @@ export function PlanReview({ frame }: { frame: Frame }) {
 
 function Action({ label, icon, primary, busy, disabled, onPress }: { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; primary?: boolean; busy?: boolean; disabled?: boolean; onPress: () => void }) {
   const { colors } = useApp(); const fg = primary ? colors.bg : colors.text;
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ flex: 1, height: 40, borderRadius: 20, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: primary ? colors.text : colors.fill, borderWidth: primary ? 0 : StyleSheet.hairlineWidth, borderColor: colors.border, opacity: disabled && !busy ? 0.45 : pressed ? 0.7 : 1 })}>
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ flex: 1, height: 40, borderRadius: 11, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: primary ? colors.text : colors.fill, borderWidth: primary ? 0 : StyleSheet.hairlineWidth, borderColor: colors.border, opacity: disabled && !busy ? 0.45 : pressed ? 0.7 : 1 })}>
     {busy ? <Dots size="sm" color={fg} /> : <Ionicons name={icon} size={16} color={fg} />}
     <T style="footnote" weight="600" color={fg} styleOverride={{ fontSize: 14 }}>{label}</T>
   </Pressable>;

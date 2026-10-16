@@ -18,7 +18,7 @@ export default function NewWorkspace() {
   };
   return <Screen>
     <Header title="Add Workspace" back />
-    <View style={{ paddingHorizontal: 14, paddingBottom: 4 }}><T style="caption1" color="secondary">Pick a folder on the Harness. New threads can then start there.</T></View>
+    <View style={{ paddingHorizontal: 14, paddingBottom: 4 }}><T style="caption1" color="secondary">Pick a folder on the Harness. New sessions can then start there.</T></View>
     <ErrorNotice message={error} />
     <FolderBrowser confirmLabel="Use This Folder" busy={busy} onPick={p => void create(p)} />
   </Screen>;

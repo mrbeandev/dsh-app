@@ -24,7 +24,7 @@ export function LiquidProgress({ progress, label, height = 46 }: { progress: num
   const shimmer = wave.interpolate({ inputRange: [0, 1], outputRange: [-width, width] });
   const liquid = colors.primary;
   return <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }} onLayout={e => setWidth(e.nativeEvent.layout.width)}
-    style={{ height, borderRadius: height / 2, overflow: 'hidden', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge }}>
+    style={{ height, borderRadius: 11, boxShadow: `inset 0 1px 0 ${colors.rim}`, overflow: 'hidden', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.glassEdge }}>
     <Animated.View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: fillWidth, overflow: 'hidden' }}>
       <View style={[StyleSheet.absoluteFill, { backgroundColor: liquid, opacity: 0.85 }]} />
       {/* wave crest: two soft blobs bobbing on the leading edge */}
@@ -34,7 +34,7 @@ export function LiquidProgress({ progress, label, height = 46 }: { progress: num
       <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width: width * 0.35, backgroundColor: '#ffffff', opacity: 0.12, transform: [{ translateX: shimmer }, { skewX: '-20deg' }] }} />
     </Animated.View>
     <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
-      <T style="footnote" weight="600" color={progress > 0.55 ? '#ffffff' : colors.text} styleOverride={{ fontSize: 14, fontVariant: ['tabular-nums'] }}>{label}</T>
+      <T style="footnote" weight="600" color={progress > 0.55 ? colors.primaryForeground : colors.text} styleOverride={{ fontSize: 14, fontVariant: ['tabular-nums'] }}>{label}</T>
     </View>
   </View>;
 }

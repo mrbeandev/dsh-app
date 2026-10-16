@@ -51,7 +51,7 @@ function SheetBody({ onClose, title, children, height }: { onClose: () => void; 
   return <Modal visible transparent statusBarTranslucent navigationBarTranslucent animationType="none" onRequestClose={close}>
     <Animated.View style={{ flex: 1, backgroundColor: '#00000066', opacity: dim }}><Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} style={{ flex: 1 }} /></Animated.View>
     <Animated.View accessibilityViewIsModal style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${height * 100}%`, transform: [{ translateY: y }] }}>
-      <Glass radius={28} prominent solidOnAndroid style={{ flex: 1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: insets.bottom }}>
+      <Glass radius={18} depth="popover" prominent solidOnAndroid style={{ flex: 1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: insets.bottom }}>
         <View {...handlers}>
           <Pressable accessibilityRole="button" accessibilityLabel="Dismiss sheet" accessibilityHint="Swipe down or tap to close" onPress={close} style={{ height: 22, alignItems: 'center', justifyContent: 'center' }}><View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: colors.tertiary }} /></Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 8, paddingBottom: 6, minHeight: 40 }}>

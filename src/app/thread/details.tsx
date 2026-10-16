@@ -63,15 +63,15 @@ export default function Details() {
   const stats = useMemo(() => sessionStats(values.sessionStats), [values.sessionStats]);
   const save = async () => { if (!client) return; setBusy(true); setError(''); try { await client.request('session/rename', { sessionId: id, title }); await refresh(); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } };
 
-  const partColor = [colors.tertiary, '#b392f0', colors.primary];
+  const partColor = [colors.tertiary, colors.muted, colors.primary];
   const pendingQuestions = values.userQuestions?.active?.length ?? 0;
   const inboxCount = (values.inbox?.['next-turn']?.length ?? 0) + (values.inbox?.['next-step']?.length ?? 0);
   const todos: { content?: string; status?: string }[] = Array.isArray(values.todos?.items) ? values.todos.items : Array.isArray(values.todos) ? values.todos : [];
 
-  return <Screen><Header title="Thread Details" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
+  return <Screen><Header title="Session Details" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
     <View style={{ gap: 10 }}><Field label="Title" value={title} onChangeText={setTitle} returnKeyType="done" onSubmitEditing={save} /><Button title="Save Title" secondary loading={busy} disabled={!client || !title.trim()} onPress={save} /></View>
 
-    <Section header="Thread">
+    <Section header="Session">
       <Row icon="sparkles-outline" title="Model" value={model || 'Default'} subtitle={provider || undefined} onPress={client ? () => setPicker(true) : undefined} />
       {model ? <Row icon="pricetag-outline" title="Model ID" subtitle={provider ? `${provider} / ${model}` : model} chevron={false} copy={provider ? `${provider}/${model}` : model} /> : null}
       {values.agentPreset ? <Row icon="person-circle-outline" title="Persona" value={titleCase(String(values.agentPreset))} chevron={false} /> : null}
@@ -94,7 +94,7 @@ export default function Details() {
       </View>
     </Section>
 
-    <Section header="Token Usage" footer="All tokens this thread has sent and received, including cached input.">
+    <Section header="Token Usage" footer="All tokens this session has sent and received, including cached input.">
       <View style={{ padding: 14, gap: 10 }}>
         {loading ? <StatSkeleton /> : <>
           <StatLine icon="server-outline" label="Total" value={`${grouped(tokens.total)} tok`} strong />
@@ -128,13 +128,13 @@ export default function Details() {
       {todos.length ? <Row icon="checkbox-outline" title="To-dos" value={`${todos.filter(t => t.status === 'completed').length}/${todos.length} done`} chevron={false} /> : null}
     </Section> : null}
 
-    <Section header="Diagnostics" footer="What this device has cached for the thread. Chats sync from the Harness when opened.">
+    <Section header="Diagnostics" footer="What this device has cached for the session. Chats sync from the Harness when opened.">
       {journal ? <>
         <Row icon="albums-outline" title="Cached events" value={grouped(journal.total)} subtitle={journal.total ? `Event #${journal.first} – #${journal.last}${journal.other ? ` · ${journal.other} bookkeeping` : ''}` : undefined} chevron={false} />
         {journal.counts.map(c => <Row key={c.label} title={c.label} value={grouped(c.count)} chevron={false} />)}
         <Row icon="archive-outline" title="Stored on this phone" value={`${compact(journal.bytes)}B`} subtitle={journal.complete ? 'Whole conversation' : 'Older history still downloading'} chevron={false} />
-      </> : <Row icon="albums-outline" title="Cached events" value="None yet" subtitle="Open the thread to cache it on this device." chevron={false} />}
-      <Row icon="finger-print-outline" title="Thread ID" subtitle={id} chevron={false} copy={id} />
+      </> : <Row icon="albums-outline" title="Cached events" value="None yet" subtitle="Open the session to cache it on this device." chevron={false} />}
+      <Row icon="finger-print-outline" title="Session ID" subtitle={id} chevron={false} copy={id} />
       {client ? <Row icon="link-outline" title="Harness" subtitle={client.connection.url} chevron={false} copy={client.connection.url} /> : null}
     </Section>
     <ErrorNotice message={error} />
@@ -153,4 +153,4 @@ function StatLine({ label, value, strong, swatch, icon }: { label: string; value
 function Divider() { const { colors } = useApp(); return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator }} />; }
 function StatSkeleton() { return <View style={{ gap: 10 }}>{[70, 55, 62, 48].map((w, i) => <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Skeleton width={`${w}%`} height={11} /><Skeleton width="18%" height={11} /></View>)}</View>; }
 function titleCase(v: string) { return v.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
-/** Cheap size estimate without serialising the whole journal on the UI thread. */
+/** Cheap size estimate without serialising the whole journal on the UI session. */

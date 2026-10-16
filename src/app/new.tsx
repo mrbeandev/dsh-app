@@ -4,7 +4,7 @@ import { Loading } from '../components/Loader';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../state/app';
 import { useDialog } from '../components/Dialog';
-import { Button, ErrorNotice, Header, Row, Screen, Section, T, s } from '../components/ui';
+import { Button, ErrorNotice, Header, Row, Screen, Section, s } from '../components/ui';
 import { Sheet } from '../components/Sheet';
 import { FolderBrowser } from '../components/FolderBrowser';
 import { errorMessage } from '../lib/harness';
@@ -31,12 +31,15 @@ const titleCase = (v: string) => v.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c
 type Option = { value: string; isDefault: boolean; name?: string; description?: string; broken?: string };
 
 export default function NewTask() {
-  const { client, refresh, colors } = useApp();
+  const { client, refresh } = useApp();
   const dialog = useDialog();
   const params = useLocalSearchParams<{ cwd?: string }>();
   const [cwd, setCwd] = useState(params.cwd ?? ''); const [picker, setPicker] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [personas, setPersonas] = useState<Option[] | null>(null); const [access, setAccess] = useState<Option[] | null>(null);
   const [persona, setPersona] = useState(''); const [mode, setMode] = useState('');
+  const [selection, setSelection] = useState<'access' | 'persona' | null>(null);
+  const accessName = (o?: Option) => o ? o.name || ACCESS[o.value]?.title || titleCase(o.value) : 'Harness default';
+  const personaName = (o?: Option) => o ? o.name || PERSONA[o.value]?.title || titleCase(o.value) : 'Harness default';
 
   useEffect(() => {
     if (!client) return; let active = true;
@@ -67,27 +70,36 @@ export default function NewTask() {
       const defaultMode = access?.find(x => x.isDefault)?.value;
       if (mode && mode !== defaultMode) {
         try { await client.call('commands/execute', { agentId: result.sessionId, line: `/permission ${mode}`, submittedAttachments: [] }); }
-        catch (e) { await dialog.alert('Access mode not applied', `${errorMessage(e)}\n\nThe thread was created with the default access mode.`, 'warning'); }
+        catch (e) { await dialog.alert('Access mode not applied', `${errorMessage(e)}\n\nThe session was created with the default access mode.`, 'warning'); }
       }
       await refresh(); router.replace({ pathname: '/thread/[id]', params: { id: result.sessionId } });
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
 
-  return <Screen><Header title="New Thread" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
+  return <Screen><Header title="New Session" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
     <Section header="Working Directory" footer="Where the agent starts. Leave it on the Harness default, or browse the Harness for a folder.">
-      <Row icon="folder-outline" title={cwd ? cwd.split('/').filter(Boolean).pop() ?? cwd : 'Harness default'} subtitle={cwd || undefined} onPress={() => setPicker(true)} />
-      {cwd ? <Row icon="close-circle-outline" iconTint={colors.muted} title="Use Harness Default" chevron={false} onPress={() => setCwd('')} /> : null}
+      <Row icon="folder-outline" title={cwd ? cwd.split('/').filter(Boolean).pop() ?? cwd : 'Harness default'} subtitle={cwd || undefined} onPress={busy ? undefined : () => setPicker(true)} />
+      {cwd ? <Row icon="close-circle-outline" title="Use Harness Default" chevron={false} onPress={() => setCwd('')} /> : null}
     </Section>
-    <Section header="Access" footer="What the agent may do without asking. You can change it later with /permission.">
-      {access === null ? <Loading fill={false} size="md" label="Loading access modes…" /> : access.length ? access.map(o => <Row key={o.value} title={o.name || ACCESS[o.value]?.title || titleCase(o.value)} subtitle={o.description || ACCESS[o.value]?.detail} value={o.isDefault ? 'Default' : undefined} selected={mode === o.value} chevron={false} onPress={() => pickMode(o.value)} />) : <Row title="Harness default" subtitle="This Harness doesn’t expose access modes." chevron={false} />}
-    </Section>
-    <Section header="Persona" footer="The agent preset: which tools and instructions the agent starts with.">
-      {personas === null ? <Loading fill={false} size="md" label="Loading personas…" /> : personas.length ? personas.map(o => <Row key={o.value} title={o.name || PERSONA[o.value]?.title || titleCase(o.value)} subtitle={o.broken ? `Unavailable: ${o.broken}` : o.description || PERSONA[o.value]?.detail} value={o.isDefault ? 'Default' : o.value} selected={persona === o.value} chevron={false} onPress={o.broken ? undefined : () => setPersona(o.value)} />) : <Row title="Harness default" subtitle="This Harness doesn’t expose personas." chevron={false} />}
+    <Section>
+      <Row icon="shield-checkmark-outline" title="Access level" value={access === null ? 'Loading…' : accessName(access.find(o => o.value === mode))} onPress={busy ? undefined : () => setSelection('access')} />
+      <Row icon="person-circle-outline" title="Persona" value={personas === null ? 'Loading…' : personaName(personas.find(o => o.value === persona))} onPress={busy ? undefined : () => setSelection('persona')} />
     </Section>
     <ErrorNotice message={error} />
-    <Button title="Create Thread" onPress={create} disabled={!client} loading={busy} />
-    <T style="caption1" color="secondary" align="center">Leave the directory empty to use the Harness default.</T>
+    <Button title="Create Session" onPress={create} disabled={!client || access === null || personas === null} loading={busy} />
   </ScrollView>
     <Sheet visible={picker} onClose={() => setPicker(false)} title="Choose Folder" height={0.88}><FolderBrowser initial={cwd || undefined} confirmLabel="Use This Folder" onPick={p => { setCwd(p); setPicker(false); }} /></Sheet>
+    <Sheet visible={selection !== null} onClose={() => setSelection(null)} title={selection === 'access' ? 'Access level' : 'Persona'} height={0.7}>
+      <ScrollView contentContainerStyle={s.body}>
+        {(selection === 'access' ? access : personas) === null ? <Loading fill={false} size="md" label="Loading options…" /> : <Section>
+          {(selection === 'access' ? access : personas)?.length ? (selection === 'access' ? access : personas)!.map(o => <Row key={o.value}
+            title={selection === 'access' ? accessName(o) : personaName(o)}
+            subtitle={o.broken ? `Unavailable: ${o.broken}` : o.description || (selection === 'access' ? ACCESS[o.value]?.detail : PERSONA[o.value]?.detail)}
+            value={o.isDefault ? 'Default' : undefined} selected={(selection === 'access' ? mode : persona) === o.value} chevron={false}
+            onPress={o.broken ? undefined : () => { const kind = selection; setSelection(null); if (kind === 'access') setTimeout(() => pickMode(o.value), 250); else setPersona(o.value); }} />)
+            : <Row title="Harness default" subtitle="No additional options are available." chevron={false} />}
+        </Section>}
+      </ScrollView>
+    </Sheet>
   </Screen>;
 }

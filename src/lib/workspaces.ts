@@ -11,7 +11,7 @@ export function groupWorkspaces(sessions: Session[], workspaces: Frame[]): Works
     if (assigned.has(session.sessionId)) continue;
     const path = session.cwd ?? ''; const id = `path:${path}`;
     let group = groups.find(g => g.id === id);
-    if (!group) { group = { id, title: path.split('/').filter(Boolean).pop() ?? 'Other threads', path, updatedAt: 0, sessions: [] }; groups.push(group); }
+    if (!group) { group = { id, title: path.split('/').filter(Boolean).pop() ?? 'Other sessions', path, updatedAt: 0, sessions: [] }; groups.push(group); }
     group.sessions.push(session); group.updatedAt = Math.max(group.updatedAt, session.updatedAt);
   }
   return groups.map(g => ({ ...g, sessions: g.sessions.sort((a, b) => b.updatedAt - a.updatedAt) })).sort((a, b) => b.updatedAt - a.updatedAt);

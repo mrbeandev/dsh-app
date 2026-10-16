@@ -12,7 +12,7 @@ export type Alert = { kind: Kind; sessionId: string; title: string; body: string
 export const CHANNELS: Record<Kind, { id: string; name: string; description: string; high: boolean }> = {
   input: { id: 'dsh-input', name: 'Needs your input', description: 'The agent asked a question, needs an approval, or wants you to review a plan.', high: true },
   failed: { id: 'dsh-failed', name: 'Failed', description: 'A turn ended with an error or the agent crashed.', high: true },
-  finished: { id: 'dsh-finished', name: 'Finished', description: 'The agent finished working on a thread.', high: false },
+  finished: { id: 'dsh-finished', name: 'Finished', description: 'The agent finished working on a session.', high: false },
   stopped: { id: 'dsh-stopped', name: 'Stopped', description: 'A turn was cancelled or interrupted (not by you).', high: false },
 };
 

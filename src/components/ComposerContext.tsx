@@ -6,6 +6,7 @@ import { useApp } from '../state/app';
 import { useDialog } from './Dialog';
 import { T } from './ui';
 import { errorMessage } from '../lib/harness';
+import { paneFinish } from '../lib/solidGlass';
 
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -120,13 +121,13 @@ function QueueAction({ icon, label, hint, onPress, disabled, danger }: { icon: I
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { colors } = useApp();
-  return <View style={{ borderRadius: 14, backgroundColor: colors.dark ? '#232325' : '#f1f2f4', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, overflow: 'hidden' }}>{children}</View>;
+  return <View style={[paneFinish(colors), { borderRadius: 14, overflow: 'hidden' }]}>{children}</View>;
 }
 
 function Card({ icon, label, text, tint }: { icon: IconName; label: string; text: string; tint?: 'warning' }) {
   const { colors } = useApp();
   return <Shell><View style={s.row}>
-    <Ionicons name={icon} size={15} color={tint ? '#ffb74d' : colors.muted} />
+    <Ionicons name={icon} size={15} color={tint ? colors.warning : colors.muted} />
     <T style="caption1" weight="600" styleOverride={{ fontSize: 12.5 }}>{label}</T>
     <View style={{ flex: 1 }}><T style="caption1" color="secondary" numberOfLines={1} styleOverride={{ fontSize: 12.5 }}>{text}</T></View>
   </View></Shell>;

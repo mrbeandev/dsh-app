@@ -5,14 +5,9 @@ import { HarnessClient } from '../lib/harness';
 import { Connection, Frame, Session } from '../lib/protocol';
 import { applyBaseline, mergeRefreshed, withValues } from '../lib/projections';
 import { cacheEpoch, readCatalog, writeCatalog, clearWorkspaceHistory } from '../lib/cache';
+import { light, dark, type SolidGlassColors } from '../lib/solidGlass';
 type ThemeMode = 'system' | 'light' | 'dark';
-// Apple HIG semantic system colors (iOS light / dark). Glass tones follow the materials guidance:
-// glass only on the control layer, content stays on solid backgrounds.
-// Palette taken from the approved glass prototype (designs/android-glass-preview): soft charcoal / cool-gray,
-// warm-gray glass with a light hairline edge, off-white text, soft blue accent.
-const light = { dark: false, bg: '#edf1f5', card: '#ffffff', grouped: '#ffffff8a', text: '#202936', muted: '#586677', tertiary: '#58667799', border: '#29426026', separator: '#29426026', primary: '#1c65b9', bubble: '#ffffff8a', danger: '#c62828', success: '#2e7d32', live: '#1c65b9', glass: '#fafbfcf2', glassEdge: '#fffffff2', fill: '#2942601a' };
-const dark = { dark: true, bg: '#0e0f11', card: '#1c1c1f', grouped: '#2e2e3175', text: '#edf0f6', muted: '#aeb6c5', tertiary: '#aeb6c580', border: '#d3dff426', separator: '#d3dff426', primary: '#89baff', bubble: '#2e2e3175', danger: '#ff8a80', success: '#81c995', live: '#89baff', glass: '#2c2c2ef0', glassEdge: '#e0ebff29', fill: '#2e2e3175' };
-export type Colors = typeof light;
+export type Colors = SolidGlassColors;
 type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
 const credentials = { read: async () => Platform.OS === 'web' ? null : SecureStore.getItemAsync('dsh.connection'), save: async (c: Connection) => { if (Platform.OS !== 'web') await SecureStore.setItemAsync('dsh.connection', JSON.stringify(c)); }, clear: async () => { if (Platform.OS !== 'web') await SecureStore.deleteItemAsync('dsh.connection'); } };

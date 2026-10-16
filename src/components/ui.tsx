@@ -7,6 +7,7 @@ import { useApp } from '../state/app';
 import { Glass } from './Glass';
 import { Dots } from './Loader';
 import { CopyButton } from './CopyButton';
+import { paneFinish } from '../lib/solidGlass';
 
 /**
  * Apple HIG iOS text styles (Large / default Dynamic Type size).
@@ -55,7 +56,7 @@ export function IconButton({ icon, label, onPress, size = 22, tint, disabled }: 
 
 /** Floating glass capsule grouping one or more toolbar glyphs, like the iOS 26 navigation bar items. */
 export function GlassCluster({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <Glass radius={22} style={[{ height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, gap: 2 }, style]}>{children}</Glass>;
+  return <Glass radius={14} style={[{ height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, gap: 2 }, style]}>{children}</Glass>;
 }
 
 /**
@@ -65,7 +66,7 @@ export function GlassCluster({ children, style }: { children: React.ReactNode; s
 export function Header({ title, subtitle, back = false, large = false, leading, children }: { title: string; subtitle?: string; back?: boolean; compact?: boolean; large?: boolean; leading?: React.ReactNode; children?: React.ReactNode }) {
   // One slim glass bar holding back · title · actions (matches the approved prototype).
   return <View style={s.header}>
-    <Glass radius={22} style={{ flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, gap: 2 }}>
+    <Glass radius={14} style={{ flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, gap: 2 }}>
       {back ? <IconButton icon="chevron-back" size={20} label="Back" onPress={() => router.canGoBack() ? router.back() : router.replace('/')} /> : leading ?? <View style={{ width: 10 }} />}
       <View style={{ flex: 1, paddingHorizontal: 4, paddingVertical: subtitle ? 4 : 0, justifyContent: 'center' }}>
         <T style={large ? 'title3' : 'subhead'} weight="600" numberOfLines={1}>{title}</T>
@@ -90,20 +91,20 @@ export function Button({ title, onPress, loading, disabled, secondary = false, d
   // Prototype style: off-white pill with dark label for the primary action; quiet hairline pill otherwise.
   const primaryFg = colors.bg;
   const label = secondary ? fg : destructive ? '#ffffff' : primaryFg;
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }} disabled={disabled || loading} onPress={onPress} style={({ pressed }) => ({ height: 46, paddingHorizontal: 20, borderRadius: 23, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.fill : destructive ? colors.danger : colors.text, borderWidth: secondary ? StyleSheet.hairlineWidth : 0, borderColor: colors.border, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>{loading ? <Dots size="sm" color={label} /> : <>{icon && <Ionicons name={icon} size={18} color={label} />}<T style="headline" color={label}>{title}</T></>}</Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }} disabled={disabled || loading} onPress={onPress} style={({ pressed }) => ({ height: 46, paddingHorizontal: 20, borderRadius: 11, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: secondary ? colors.fill : destructive ? colors.danger : colors.text, borderWidth: secondary ? StyleSheet.hairlineWidth : 0, borderColor: colors.border, boxShadow: pressed ? `inset 0 1px 0 ${colors.rim}` : `inset 0 1px 0 ${colors.rim}, 0 4px 10px -6px ${colors.shadow}`, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}>{loading ? <Dots size="sm" color={label} /> : <>{icon && <Ionicons name={icon} size={18} color={label} />}<T style="footnote" weight="600" color={label} styleOverride={{ fontSize: 14 }}>{title}</T></>}</Pressable>;
 }
 
 /** Grouped inset text field with a footnote label above. */
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
   const { colors } = useApp();
-  return <View style={{ gap: 6 }}><View style={{ paddingHorizontal: 14 }}><T style="caption1" color="secondary">{label.toUpperCase()}</T></View><TextInput accessibilityLabel={label} placeholderTextColor={colors.tertiary} {...props} style={[type.subhead, { fontSize: 14, borderRadius: 12, backgroundColor: colors.grouped, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, color: colors.text, paddingHorizontal: 14, height: 42 }, props.multiline && { height: undefined, minHeight: 88, paddingVertical: 11, textAlignVertical: 'top' }, props.style]} /></View>;
+  return <View style={{ gap: 6 }}><View style={{ paddingHorizontal: 14 }}><T style="caption1" color="secondary">{label.toUpperCase()}</T></View><TextInput accessibilityLabel={label} placeholderTextColor={colors.tertiary} {...props} style={[type.subhead, { fontSize: 14, borderRadius: 12, backgroundColor: colors.field, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.fieldEdge, boxShadow: `inset 0 1px 0 ${colors.rim}`, color: colors.text, paddingHorizontal: 14, height: 42 }, props.multiline && { height: undefined, minHeight: 88, paddingVertical: 11, textAlignVertical: 'top' }, props.style]} /></View>;
 }
 
 /** Search field: 36 pt capsule with a magnifying glass, matching the iOS search bar. */
 export function SearchField({ value, onChangeText, placeholder, glass = false }: { value: string; onChangeText: (v: string) => void; placeholder: string; glass?: boolean }) {
   const { colors } = useApp();
   const inner = <><Ionicons name="search" size={16} color={colors.muted} /><TextInput accessibilityLabel={placeholder} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.muted} returnKeyType="search" clearButtonMode="while-editing" style={[type.body, { flex: 1, color: colors.text, paddingVertical: 0, height: 36 }]} />{value && Platform.OS !== 'ios' ? <IconButton icon="close-circle" size={17} tint={colors.tertiary} label="Clear search" onPress={() => onChangeText('')} /> : null}</>;
-  return glass ? <Glass radius={18} style={s.search}>{inner}</Glass> : <View style={[s.search, { backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]}>{inner}</View>;
+  return glass ? <Glass radius={11} depth="control" style={s.search}>{inner}</Glass> : <View style={[s.search, paneFinish(colors, 'control')]}>{inner}</View>;
 }
 
 /** iOS grouped-inset section: footnote caps header, rounded container, optional footer. */
@@ -111,7 +112,7 @@ export function Section({ header, footer, children }: { header?: string; footer?
   const { colors } = useApp();
   return <View style={{ gap: 6 }}>
     {header ? <View style={{ paddingHorizontal: 14 }}><T style="caption1" color="secondary">{header.toUpperCase()}</T></View> : null}
-    <View style={{ backgroundColor: colors.grouped, borderRadius: 14, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>{React.Children.toArray(children).filter(Boolean).map((child, i) => <View key={i}>{i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: 14 }} />}{child}</View>)}</View>
+    <Glass depth="panel" radius={14}>{React.Children.toArray(children).filter(Boolean).map((child, i) => <View key={i}>{i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator, marginLeft: 14 }} />}{child}</View>)}</Glass>
     {footer ? <View style={{ paddingHorizontal: 14 }}><T style="caption1" color="secondary">{footer}</T></View> : null}
   </View>;
 }
@@ -120,7 +121,7 @@ export function Section({ header, footer, children }: { header?: string; footer?
 export function Row({ title, subtitle, value, icon, iconTint, onPress, chevron = !!onPress, destructive, accessory, selected, copy }: { title: string; subtitle?: string; value?: string; icon?: IconName; iconTint?: string; onPress?: () => void; chevron?: boolean; destructive?: boolean; accessory?: React.ReactNode; selected?: boolean; /** Adds an inline copy button for this text. */ copy?: string }) {
   const { colors } = useApp();
   // Slim row: 44 pt minimum target, compact 14/12 pt text (matches the approved prototype density).
-  return <Pressable accessibilityRole={onPress ? 'button' : undefined} accessibilityState={selected !== undefined ? { selected } : undefined} disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 14, paddingVertical: subtitle ? 7 : 10, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: pressed ? colors.fill : 'transparent' })}>
+  return <Pressable accessibilityRole={onPress ? 'button' : undefined} accessibilityState={selected !== undefined ? { selected } : undefined} disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 14, paddingVertical: subtitle ? 7 : 10, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: pressed || selected ? colors.state : 'transparent' })}>
     {icon ? <Ionicons name={icon} size={18} color={iconTint ?? (destructive ? colors.danger : colors.primary)} /> : null}
     <View style={{ flex: 1 }}><T style="footnote" weight="500" color={destructive ? 'danger' : 'primary'} numberOfLines={1} styleOverride={{ fontSize: 14 }}>{title}</T>{subtitle ? <T style="caption1" color="secondary" numberOfLines={2}>{subtitle}</T> : null}</View>
     {value ? <T style="caption1" color="secondary" numberOfLines={1}>{value}</T> : null}
@@ -142,5 +143,5 @@ export const s = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingTop: 4, paddingBottom: 8, minHeight: 56 },
   body: { padding: 14, gap: 18 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  search: { height: 36, borderRadius: 18, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  search: { height: 36, borderRadius: 11, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },
 });

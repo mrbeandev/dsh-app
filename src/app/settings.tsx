@@ -32,8 +32,9 @@ export default function Settings() {
     </Section>
     <NotificationSection />
     <UpdateSection />
-    <Section header="About" footer="UI adapted from T3 Code mobile; Harness protocol informed by DeepSeek Harness Mobile. Both MIT licensed.">
+    <Section header="About" footer="Native Solid Glass theme adapted from DeepLethe. Original screen patterns inspired by T3 Code Mobile; Harness protocol informed by DeepSeek Harness Mobile. MIT licensed.">
       <Row title="DSH Mobile on GitHub" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/mrbeandev/dsh-app')} />
+      <Row title="Solid Glass by DeepLethe" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/deeplethe/solid-glass')} />
       <Row title="T3 Code Mobile" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/pingdotgg/t3code/tree/main/apps/mobile')} />
       <Row title="DeepSeek Harness Mobile" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/sorsama/deepseek-harness-mobile')} />
     </Section>

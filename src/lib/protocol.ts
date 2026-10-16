@@ -28,7 +28,7 @@ export function rpcEnvelope(method: string, args: Record<string, unknown>, rpcId
 }
 export function sessionTitle(session: Session) {
   const title = session.projections?.values.title;
-  return typeof title === 'string' && title ? title : 'Untitled thread';
+  return typeof title === 'string' && title ? title : 'Untitled session';
 }
 export function textContent(value: unknown): string {
   if (typeof value === 'string') return value;

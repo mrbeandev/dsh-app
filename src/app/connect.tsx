@@ -14,7 +14,7 @@ export default function Connect() {
   const submit = async () => { if (!url.trim() || busy) return; setBusy(true); setError(''); try { await connect({ url: url.trim(), token: token.trim() }); router.replace('/'); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } };
   return <Screen><Header title="Connect" back /><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[s.body, { paddingTop: 24 }]}>
     <View style={{ alignItems: 'center', gap: 10 }}>
-      <View style={{ width: 60, height: 60, backgroundColor: colors.grouped, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="terminal-outline" size={28} color={colors.text} /></View>
+      <View style={{ width: 60, height: 60, backgroundColor: colors.card, borderWidth: 0.5, borderColor: colors.glassEdge, boxShadow: `inset 0 1px 0 ${colors.rim}`, borderRadius: 14, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="terminal-outline" size={28} color={colors.text} /></View>
       <T style="title1" align="center">Connect Your Harness</T>
       <T style="subhead" color="secondary" align="center">Use a local address or any tunnel URL.</T>
     </View>
