@@ -12,16 +12,19 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/solid-home.png" width="200" alt="Solid Glass workspaces and sample sessions">
-  <img src=".github/assets/solid-chat.png" width="200" alt="Live chat with Markdown in the Solid Glass theme">
-  <img src=".github/assets/solid-details.png" width="200" alt="Session details and context usage">
+  <img src=".github/assets/solid-showcase.webp" width="900" alt="DSH Mobile: the workspace tree and a live conversation in the Solid Glass theme">
 </p>
+
+<details>
+<summary>More screens</summary>
 <p align="center">
+  <img src=".github/assets/solid-details.png" width="200" alt="Session details and context usage">
   <img src=".github/assets/solid-new-session.png" width="200" alt="Compact New Session form with access and persona selectors">
   <img src=".github/assets/solid-imports.png" width="200" alt="Grouped image, video, audio, PDF and document imports">
 </p>
+</details>
 
-Screenshots captured from the Android app with sample conversations on a test Harness (October 2026). Device status-bar notifications are cropped out.
+Real screenshots from the Android app with sample conversations on a test Harness (October 2026).
 
 > Independent community project. Not affiliated with or endorsed by DeepSeek or T3.
 
