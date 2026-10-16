@@ -38,6 +38,8 @@ import { coverage, eventsBetween, putEvents } from '../../lib/eventStore';
 import { backfill, turnEvents } from '../../lib/historySync';
 import { StepDetailContext } from '../../components/stepDetail';
 import { rememberSession } from '../../lib/recentSession';
+import { useImports } from '../../lib/useImports';
+import { promptWithImports } from '../../lib/imports';
 
 /** List anchoring (keeps your place as new messages arrive); paused while a row expands. */
 const MVCP = { minIndexForVisible: 0, autoscrollToTopThreshold: 80 } as const;
@@ -169,23 +171,26 @@ export default function Thread() {
   }, [menu, dialog, client, id, session, running, refresh, harnessUrl, records]);
   // Optimistic send (Web UI parity): the draft clears and a "Sending…" bubble appears immediately; on
   // a slow tunnel the request can take seconds. A failure removes the bubble and restores the draft.
+  const imports = useImports(client, id, setError);
   const send = async (mode: 'queue' | 'steer' = 'queue') => {
-    if (!client || !draft.trim()) return;
-    const content = draft.trim(); const key = randomUUID();
-    setError(''); setDraft(''); setSending(s => [...s, { key, text: content }]); scrollToBottom();
+    if (!client || (!draft.trim() && !imports.items.length)) return;
+    if (imports.items.some(i => i.state !== 'ready')) { setError('Wait for attachments to finish or remove failed imports.'); return; }
+    const selected = imports.items; const content = draft.trim(); const parts = promptWithImports(content, selected); const key = randomUUID();
+    setError(''); setDraft(''); imports.setItems([]); setSending(s => [...s, { key, text: [content, ...selected.map(i => `Attachment: ${i.name}`)].filter(Boolean).join('\n') }]); scrollToBottom();
     try {
       // Commands have a separate strict write path; unregistered slash names remain prompts (skills).
       const name = content.match(/^\/(\S+)/)?.[1];
       const commands = name ? await client.call('commands/list', { agentId: id }) : null;
       const catalog = Array.isArray(commands) ? commands : commands?.commands ?? [];
-      if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client.call('commands/execute', { agentId: id, line: content, submittedAttachments: [] });
-      else await client.request('session/prompt', { requestId: key, sessionId: id, mode, content: [{ type: 'text', text: content }], clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client.call('commands/execute', { agentId: id, line: content, submittedAttachments: parts.filter(p => p.type !== 'text') });
+      else await client.request('session/prompt', { requestId: key, sessionId: id, mode, content: parts, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
       setRunning(true); scrollToBottom();
       // Keep the bubble until the Harness echoes the message (or a queue row shows it), max 8 s.
       setTimeout(() => setSending(s => s.filter(x => x.key !== key)), 8000);
     } catch (e) {
       setSending(s => s.filter(x => x.key !== key));
       setDraft(d => d.trim() ? d : content);
+      imports.setItems(current => [...selected, ...current]);
       setError(errorMessage(e));
     }
   };
@@ -324,7 +329,7 @@ export default function Thread() {
       <ErrorNotice message={error} />
       <GlassTargetProvider value={target}>
         <ComposerContext sessionId={id} running={running} values={(session?.projections?.values as Record<string, any>) ?? {}} />
-        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected'} onStop={stopTurn}  />}
+        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected'} onStop={stopTurn}  />}
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>

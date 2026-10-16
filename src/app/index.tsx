@@ -18,8 +18,6 @@ import { groupWorkspaces } from '../lib/workspaces';
 import { relativeTime } from '../lib/time';
 import { useActionMenu } from '../components/ActionMenu';
 import { useDialog } from '../components/Dialog';
-import { SwipeToRecent } from '../components/SwipeToRecent';
-import { recentSession } from '../lib/recentSession';
 
 type Filter = 'All' | 'Working';
 
@@ -86,19 +84,7 @@ export default function Home() {
     ] });
   };
 
-  const openingRecent = useRef(false);
-  const openRecent = async () => {
-    if (openingRecent.current) return;
-    const url = client?.connection.url ?? savedUrl; if (!url) return;
-    openingRecent.current = true;
-    try {
-      const id = await recentSession(url);
-      if (id && sessions.some(s => s.sessionId === id) && !archived.includes(id)) {
-        router.push({ pathname: '/thread/[id]', params: { id, harness: url } });
-      }
-    } finally { setTimeout(() => { openingRecent.current = false; }, 500); }
-  };
-  return <SwipeToRecent onOpen={() => void openRecent()} enabled={!loading && !!(client?.connection.url ?? savedUrl)}><Screen edges={['top']}>
+  return <Screen edges={['top']}>
     <GlassTarget target={target}>
       {loading ? <View style={{ paddingTop: 70 }}><SkeletonRows rows={10} /></View> : <SectionList
         sections={sections}
@@ -174,5 +160,5 @@ export default function Home() {
         </Pressable>
       </GlassTargetProvider>
     </View> : null}
-  </Screen></SwipeToRecent>;
+  </Screen>;
 }

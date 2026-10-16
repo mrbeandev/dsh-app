@@ -20,13 +20,19 @@ export class HarnessClient {
   /** Called whenever anything arrives from the Harness (stream frame or successful RPC). */
   onActivity: () => void = () => {};
   get socketOpen() { return this.socket?.readyState === WebSocket.OPEN; }
+  /** Native binary transfers use the same authenticated session as Remote calls. */
+  get transferHeaders(): Record<string, string> { return Platform.OS !== 'web' && this.cookie ? { Cookie: this.cookie } : {}; }
   /** Skip the back-off and reconnect the live socket now (no-op while it is open). */
   reconnectNow() { if (this.closed || this.socketOpen) return; clearTimeout(this.retry); this.attempts = 0; try { this.socket?.close(); } catch { /* already closed */ } this.connectStreams(); }
   constructor(connection: Connection) { this.connection = normalizeConnection(connection); }
   async authenticate() {
     const url = new URL(endpoint(this.connection.url, '/'));
     url.searchParams.set('token', this.connection.token);
-    const response = await fetch(url.toString(), { credentials: 'include', redirect: 'follow', signal: AbortSignal.timeout(12000) });
+    // Capture the token exchange's redirect cookie before native fetch follows it and hides Set-Cookie.
+    const exchange = Platform.OS === 'web' ? null : await fetch(url.toString(), { credentials: 'include', redirect: 'manual', signal: AbortSignal.timeout(12000) });
+    const minted = exchange?.headers.get('set-cookie');
+    if (minted) this.cookie = minted.split(';')[0];
+    const response = exchange && exchange.ok ? exchange : await fetch(url.toString(), { credentials: 'include', redirect: 'follow', signal: AbortSignal.timeout(12000) });
     // Native fetch maintains the cookie jar; explicitly retain a cookie when exposed by the platform.
     const cookie = response.headers.get('set-cookie');
     if (cookie) this.cookie = cookie.split(';')[0];
