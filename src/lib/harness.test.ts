@@ -3,6 +3,7 @@ import { HarnessClient } from './harness';
 vi.mock('./diagnostics', () => ({ diagnostic: vi.fn() }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'rpc-1' }));
+vi.mock('expo/fetch', () => ({ fetch: (...a: unknown[]) => (globalThis as any).fetch(...a) }));
 const fetchMock = vi.fn();
 function response(value: unknown, status = 200) { return { ok: status >= 200 && status < 300, status, headers: { get: () => null }, json: async () => ({ type: 'server-response', rpcId: 'rpc-1', result: { ok: true, value } }) }; }
 class FakeSocket {

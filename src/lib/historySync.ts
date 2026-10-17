@@ -11,12 +11,20 @@ const eventsOf = (p: Page) => p.records.filter(r => r.type === 'event' && r.even
  * full on the phone, until the start of the session. Small pages, a pause between them, and it
  * stops when the chat closes (signal). Pages already stored are skipped via coverage.
  */
+/** Set while the user is touching/scrolling a chat; backfill waits so parsing never competes with frames. */
+let busyUntil = 0;
+export function markInteraction(ms = 1200) { busyUntil = Math.max(busyUntil, Date.now() + ms); }
+const idle = async (signal: AbortSignal) => { while (!signal.aborted && Date.now() < busyUntil) await new Promise(r => setTimeout(r, Math.max(50, busyUntil - Date.now()))); };
+
 export async function backfill(client: HarnessClient, url: string, sessionId: string, address: Address, throughSeq: number, signal: AbortSignal) {
+  // Let the chat finish opening (first layout, scroll-to-bottom) before downloading older pages.
+  await new Promise(r => setTimeout(r, 1500));
   for (let guard = 0; guard < 500 && !signal.aborted; guard++) {
+    await idle(signal); if (signal.aborted) return;
     const cov = await coverage(url, sessionId);
     if (!cov || cov.complete) return;
     const page = await client.request<Page>('session/page', { address, throughSeq, beforeSeq: cov.low, maxMessages: 80 });
-    if (signal.aborted) return;
+    await idle(signal); if (signal.aborted) return;
     const events = eventsOf(page);
     await putEvents(url, sessionId, events, { reachedStart: !page.hasMore || !events.length });
     if (!page.hasMore || !events.length) return;

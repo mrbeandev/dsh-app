@@ -33,9 +33,9 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
 import { expandStream, streamText } from '../../lib/stream';
-import { liteEvent } from '../../lib/lite';
+import { liteEvent, sameRecords } from '../../lib/lite';
 import { coverage, eventsBetween, putEvents } from '../../lib/eventStore';
-import { backfill, turnEvents } from '../../lib/historySync';
+import { backfill, markInteraction, turnEvents } from '../../lib/historySync';
 import { StepDetailContext } from '../../components/stepDetail';
 import { rememberSession } from '../../lib/recentSession';
 import { useImports } from '../../lib/useImports';
@@ -55,7 +55,11 @@ export default function Thread() {
   const offlineCache = status === 'offline' || status === 'disconnected' || status === 'cached';
   // A failed follow request ends the sync wait so the composer is never stuck disabled.
   const [syncFailed, setSyncFailed] = useState(false);
-  const syncingLive = !offlineCache && historyState !== 'live' && !syncFailed;
+  // Cached history renders in ~30 ms; the live snapshot follows ~0.5 s later over a tunnel. Only
+  // surface "Syncing" if it's genuinely slow, so normal opens show nothing at all.
+  const [syncSlow, setSyncSlow] = useState(false);
+  const waitingLive = !offlineCache && historyState !== 'live' && !syncFailed;
+  const syncingLive = waitingLive && syncSlow;
   const history = useRef<CachedHistory>({ records: [], cursor: -1, hasMore: false, savedAt: 0 });
   const scrollY = useRef(0);
   const [anchorHolds, setAnchorHolds] = useState(0);
@@ -64,7 +68,7 @@ export default function Thread() {
     scrollTo: (y: number) => { scrollY.current = y; list.current?.scrollToOffset({ offset: y, animated: false }); },
     holdAnchor: (on: boolean) => setAnchorHolds(n => Math.max(0, n + (on ? 1 : -1))),
   }), []);
-  const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false);
+  const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false); const jumpShown = useRef(false);
   const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState(() => takePendingDraft(id) ?? '');
   const [sending, setSending] = useState<{ key: string; text: string }[]>([]);
   const [error, setError] = useState(''); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
@@ -92,13 +96,14 @@ export default function Thread() {
     const epoch = cacheEpoch(harnessUrl);
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
     const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); }, 400); };
-    void readHistory(harnessUrl, id).then(cached => { if (active && !receivedLive && cached) { cached = { ...cached, records: cached.records.map(liteEvent) }; history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
+    const openedAt = Date.now(); diagnostic('chat.open', { phase: 'start' });
+    void readHistory(harnessUrl, id).then(cached => { diagnostic('chat.open', { phase: 'cache', durationMs: Date.now() - openedAt, count: cached?.records.length ?? 0 }); if (active && !receivedLive && cached) { cached = { ...cached, records: cached.records.map(liteEvent) }; history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
     liveChunks.current.clear();
     if (!client || client.connection.url !== harnessUrl) return () => { active = false; };
     const stop = client.follow('session/follow', { request: { address, maxMessages: 24, assistantStream: true } }, frame => {
       if (frame.type === 'stream-error') { setError(frame.error.message); setSyncFailed(true); return; }
       if (frame.type === 'snapshot') {
-        receivedLive = true; setHistoryState('live'); setSyncFailed(false);
+        receivedLive = true; setHistoryState('live'); setSyncFailed(false); diagnostic('chat.open', { phase: 'snapshot', durationMs: Date.now() - openedAt, count: frame.records?.length ?? 0 });
         // The snapshot carries this thread's current projections (queue/inbox, todos, goal…): apply them
         // so the composer strip is right the moment the chat opens.
         if (frame.projections?.values) applyProjections(id, frame.projections.values);
@@ -107,7 +112,8 @@ export default function Thread() {
         void putEvents(harnessUrl, id, full, { reachedStart: !frame.hasMore }, epoch).catch(() => {});
         const lite = full.map(liteEvent);
         history.current = { records: lite, cursor: frame.cursor, hasMore: frame.hasMore, savedAt: Date.now() }; save();
-        setRecords(lite); setCursor(frame.cursor); setHasMore(frame.hasMore);
+        // Usually identical to the cached copy already on screen: keep the same array so the list doesn't re-render.
+        setRecords(prev => sameRecords(prev, lite) ? prev : lite); setCursor(frame.cursor); setHasMore(frame.hasMore);
         // Keep the phone's copy of this chat complete: page older history in quietly.
         sync.abort(); sync = new AbortController();
         if (frame.hasMore) void backfill(client, harnessUrl, id, address, frame.cursor, sync.signal).catch(() => {}); liveChunks.current.clear(); setLive('');
@@ -144,10 +150,15 @@ export default function Thread() {
   const steps = useMemo(() => ({ sessionId: id, load: (from: number, to: number) => turnEvents(client, harnessUrl, id, address, cursor, from, to) }), [client, harnessUrl, id, address, cursor]);
   // Inverted list: index 0 renders at the bottom, so the chat opens on the latest message with no scroll jump.
   const data = useMemo(() => [...rows].reverse(), [rows]);
+  // syncSlow only turns on from a timer; it's ignored (via waitingLive) once the snapshot lands, and reset on leave.
+  // A chat already shown from the phone's cache needs no sync notice; the fresh copy swaps in quietly.
+  // Only flag a sync that's genuinely stuck (slow tunnels routinely take 1–3 s).
+  const hasCached = rows.length > 0;
+  useEffect(() => { if (!waitingLive) return; const t = setTimeout(() => setSyncSlow(true), hasCached ? 6000 : 2000); return () => { clearTimeout(t); setSyncSlow(false); }; }, [waitingLive, hasCached]);
   // Scroll ownership (like the DSH web chat): follow the tail unless the reader has scrolled away.
   // Sending a message or any new agent activity re-pins to the very bottom.
   const scrollToBottom = useCallback((animated = true) => {
-    atBottom.current = true; userScrolled.current = false; setJumpVisible(false);
+    atBottom.current = true; userScrolled.current = false; jumpShown.current = false; setJumpVisible(false);
     list.current?.scrollToOffset({ offset: 0, animated });
   }, []);
   const lastRow = rows[rows.length - 1];
@@ -295,7 +306,7 @@ export default function Thread() {
     if (index < 0) return;
     const rowId = data[index].id;
     const t1 = setTimeout(() => {
-      setPendingJump(null); atBottom.current = false; userScrolled.current = true; setJumpVisible(true); setHighlight(rowId);
+      setPendingJump(null); atBottom.current = false; userScrolled.current = true; jumpShown.current = true; setJumpVisible(true); setHighlight(rowId);
       list.current?.scrollToIndex({ index, viewPosition: 0.35, animated: true });
     }, 0);
     const t2 = setTimeout(() => setHighlight(''), 1900);
@@ -321,8 +332,8 @@ export default function Thread() {
           // Inverted: the footer renders at the visual bottom (live text, pending requests), the header at the top.
           maintainVisibleContentPosition={anchorHolds ? undefined : MVCP}
           initialNumToRender={14} maxToRenderPerBatch={12} windowSize={11} removeClippedSubviews={Platform.OS === 'android'}
-          onScrollBeginDrag={() => { userScrolled.current = true; }}
-          onScroll={e => { const y = e.nativeEvent.contentOffset.y; scrollY.current = y; if (!userScrolled.current) return; atBottom.current = y < 100; setJumpVisible(y > 300); }} scrollEventThrottle={16}
+          onScrollBeginDrag={() => { userScrolled.current = true; markInteraction(); }} onMomentumScrollEnd={() => markInteraction(400)}
+          onScroll={e => { const y = e.nativeEvent.contentOffset.y; scrollY.current = y; markInteraction(600); if (!userScrolled.current) return; atBottom.current = y < 100; const show = y > 300; if (show !== jumpShown.current) { jumpShown.current = show; setJumpVisible(show); } }} scrollEventThrottle={16}
           onEndReached={() => { if (hasMore) void older(); }} onEndReachedThreshold={0.6}
           onScrollToIndexFailed={info => { list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); setTimeout(() => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.35, animated: true }), 120); }}
           keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled"
@@ -341,7 +352,7 @@ export default function Thread() {
         {syncingLive ? <View accessibilityRole="progressbar" accessibilityLabel="Syncing latest messages" accessibilityLiveRegion="polite" style={{ marginHorizontal: 12, marginBottom: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.glassEdge }}><Dots size="sm" /><T style="caption1" color="secondary">Syncing latest messages…</T></View> : null}
         {offlineCache ? <View accessibilityRole="alert" style={{ marginHorizontal: 12, marginBottom: 6, padding: 10, borderRadius: 10, flexDirection: 'row', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.warning }}><Ionicons name="warning-outline" size={18} color={colors.warning} /><View style={{ flex: 1 }}><T style="caption1" weight="600" color={colors.warning}>{deviceOffline ? 'Device offline · Local cache' : 'Showing local cache'}</T><T style="caption1" color="secondary">Connect to your Harness to get the latest chat data.</T></View></View> : null}
         <ComposerContext sessionId={id} running={running} values={(session?.projections?.values as Record<string, any>) ?? {}} />
-        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected' || syncingLive} onStop={stopTurn}  />}
+        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected'} onStop={stopTurn}  />}
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>

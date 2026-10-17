@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { fetch as expoFetch } from 'expo/fetch';
 import { randomUUID } from 'expo-crypto';
 import { Connection, endpoint, Frame, normalizeConnection, rpcEnvelope } from './protocol';
 import { attachBinary, parseMultipart } from './multipart';
@@ -37,16 +38,33 @@ export class HarnessClient {
     const url = new URL(endpoint(this.connection.url, '/'));
     url.searchParams.set('token', this.connection.token);
     // Capture the token exchange's redirect cookie before native fetch follows it and hides Set-Cookie.
-    const exchange = Platform.OS === 'web' ? null : await fetch(url.toString(), { credentials: 'include', redirect: 'manual', signal: AbortSignal.timeout(12000) });
+    // React Native's fetch ignores redirect:'manual' on Android and silently downloads the whole Web UI
+    // page; expo/fetch honours it, so the 303's Set-Cookie is readable and nothing else is fetched.
+    const exchange = Platform.OS === 'web' ? null : await expoFetch(url.toString(), { credentials: 'include', redirect: 'manual', signal: AbortSignal.timeout(12000) }).catch(() => null);
     const minted = exchange?.headers.get('set-cookie');
     if (minted) this.cookie = minted.split(';')[0];
-    const response = exchange && exchange.ok ? exchange : await fetch(url.toString(), { credentials: 'include', redirect: 'follow', signal: AbortSignal.timeout(12000) });
+    // The Harness answers a valid token with 303 + Set-Cookie. That already authenticates us, so skip
+    // following the redirect (it downloads the whole Web UI page: ~1 s extra on a mobile tunnel).
+    // Fall back to the follow request only if the exchange itself failed (older Harness / network error).
+    // A 303 is only sent for a valid token (a bad one gets 401). Android's shared cookie jar stores the
+    // session cookie even when it hides Set-Cookie from JS, so the redirect needn't be followed.
+    const exchanged = !!exchange && (exchange.ok || exchange.status === 303);
+    const response = exchanged ? exchange! : await fetch(url.toString(), { credentials: 'include', redirect: 'follow', signal: AbortSignal.timeout(12000) });
     // Native fetch maintains the cookie jar; explicitly retain a cookie when exposed by the platform.
     const cookie = response.headers.get('set-cookie');
     if (cookie) this.cookie = cookie.split(';')[0];
-    if (!response.ok) throw new HarnessError('authentication', 'Harness refused the connection. Check the URL and current auth token.');
-    await this.call('session/list', { _request: {} });
+    if (!response.ok && !exchanged) throw new HarnessError('authentication', 'Harness refused the connection. Check the URL and current auth token.');
+    // This list call proves the session works; keep its result so the first refresh can reuse it
+    // instead of paying for an identical round trip over a slow tunnel.
+    // A bad token already fails at the exchange above, so don't make the user wait for the session list
+    // (~3 s over a mobile tunnel) before the live socket opens: fetch it in parallel and let the first
+    // refresh await it. An auth failure here still surfaces through that refresh.
+    const list = this.call('session/list', { _request: {} });
+    list.catch(() => {}); // observed by the first refresh; avoid an unhandled-rejection warning meanwhile
+    this.initialList = list;
   }
+  /** session/list request started by authenticate(); consumed once by the first refresh. */
+  initialList: Promise<any> | null = null;
   async call<T = any>(method: string, args: Record<string, unknown>): Promise<T> {
     const start = Date.now(); diagnostic('rpc.start', { method });
     try { return await this.performCall<T>(method, args); }

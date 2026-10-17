@@ -30,13 +30,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<Frame[]>([]); const [theme, setTheme] = useState<ThemeMode>('system'); const system = useColorScheme();
   const catalog = useRef<{ sessions: Session[]; workspaces: Frame[] }>({ sessions: [], workspaces: [] });
   const refreshFlight = useRef<Promise<void> | null>(null);
-  const persist = useCallback(() => { const c = current.current; if (c) void writeCatalog({ url: c.connection.url, ...catalog.current, savedAt: Date.now() }).catch(() => {}); }, []);
+  // Live projection frames arrive many times a second while an agent works; serialising the whole
+  // catalog to SQLite on each one blocked the JS thread. Coalesce writes into one per second.
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const persist = useCallback(() => {
+    if (persistTimer.current) return;
+    persistTimer.current = setTimeout(() => { persistTimer.current = undefined; const c = current.current; if (c) void writeCatalog({ url: c.connection.url, ...catalog.current, savedAt: Date.now() }).catch(() => {}); }, 1000);
+  }, []);
   const refresh = useCallback(async () => {
     const c = current.current; if (!c || offlineRef.current) return;
     if (refreshFlight.current) return refreshFlight.current;
     const epoch = cacheEpoch(c.connection.url);
     const task = (async () => {
-      const [result, workspace] = await Promise.all([c.call('session/list', { _request: {} }), c.call('workspace/list', {}).catch(() => null)]);
+      const first = c.initialList; c.initialList = null;
+      const [result, workspace] = await Promise.all([first ?? c.call('session/list', { _request: {} }), c.call('workspace/list', {}).catch(() => null)]);
       if (current.current !== c) return;
       // Keep live projection values (inbox, todos, goal, …) that arrived over session/control: list
       // items only carry partial hints, so a plain replace would drop the queue and other live state.

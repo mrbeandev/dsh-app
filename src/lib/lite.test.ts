@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildTranscript, foldTurns, toolTitle, type WireEvent } from './protocol';
-import { isLite, liteEvent } from './lite';
+import { isLite, liteEvent, sameRecords } from './lite';
 
 const ev = (seq: number, type: string, data: Record<string, unknown>, time = seq * 1000): WireEvent => ({ seq, type, time, data });
 const bigArgs = JSON.stringify({ command: 'npm test -- --coverage', description: 'x'.repeat(2000) });
@@ -78,5 +78,18 @@ describe('image results', () => {
     const tool = buildTranscript(events.map(liteEvent)).find(r => r.kind === 'tool') as any;
     expect(tool.images).toEqual([{ attachmentId: 'att-1', mediaType: 'image/png', width: 1080, height: 2400, name: 'shot.png' }]);
     expect(tool.result).toBe('[Image]'); // the 5 KB text was dropped; only the image marker remains
+  });
+});
+
+describe('sameRecords', () => {
+  const rec = (seq: number, time = seq * 10, type = 'assistant/message'): WireEvent => ({ type, seq, time, data: {} });
+  it('treats a snapshot matching the cached list as unchanged', () => {
+    expect(sameRecords([rec(1), rec(2)], [rec(1), rec(2)])).toBe(true);
+  });
+  it('detects new, removed or different events', () => {
+    expect(sameRecords([rec(1)], [rec(1), rec(2)])).toBe(false);
+    expect(sameRecords([rec(1), rec(2)], [rec(1), rec(3)])).toBe(false);
+    expect(sameRecords([rec(1)], [rec(1, 99)])).toBe(false);
+    expect(sameRecords([rec(1)], [rec(1, 10, 'turn/end')])).toBe(false);
   });
 });

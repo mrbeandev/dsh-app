@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '12.0.0' } } }));
-vi.mock('expo-file-system', () => ({ File: class {}, Paths: {} }));
+vi.mock('expo-file-system', () => ({ File: class {}, Paths: {}, DownloadTask: {} }));
 vi.mock('expo-intent-launcher', () => ({}));
 vi.mock('../../modules/dsh-installer', () => ({ sha256File: async () => null }));
 const { compareVersions, pickRelease, checkForUpdate, digestOf } = await import('./updater');

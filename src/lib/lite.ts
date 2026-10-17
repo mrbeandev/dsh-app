@@ -94,3 +94,18 @@ function titleArgs(name: string, target: string): Record<string, string> {
 
 export function isLite(e: WireEvent | undefined): boolean { return !!(e?.data as any)?.__lite; }
 export function liteBytes(e: WireEvent | undefined): number { return Number((e?.data as any)?.__lite?.bytes) || 0; }
+
+/**
+ * True when two lite record lists describe the same events. The live snapshot usually repeats exactly
+ * what the cache already rendered; reusing the old array then avoids re-rendering the whole chat.
+ * Events are append-only per seq, so seq + type + time identify them; streaming text arrives separately.
+ */
+export function sameRecords(a: WireEvent[], b: WireEvent[]) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i], y = b[i];
+    if (x.seq !== y.seq || x.type !== y.type || x.time !== y.time) return false;
+  }
+  return true;
+}
