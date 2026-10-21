@@ -1,4 +1,5 @@
 import { clearEvents, storeBytes } from './eventStore';
+import { clearDraftsFor } from './draftStore';
 import * as SQLite from 'expo-sqlite';
 import type { Frame, Session, WireEvent } from './protocol';
 import type { CachedDirectory } from './directoryCache';
@@ -21,7 +22,7 @@ async function listCachesBase(): Promise<{ url: string; bytes: number }[]> { ret
 export async function readHistory(url: string, sessionId: string): Promise<CachedHistory | null> { const row = await (await db()).getFirstAsync<{ data: string }>('SELECT data FROM history_cache WHERE url=? AND session_id=?', url, sessionId); return row ? JSON.parse(row.data) : null; }
 export async function writeHistory(url: string, sessionId: string, value: CachedHistory, epoch = cacheEpoch(url)) { if (epoch !== cacheEpoch(url)) return; const d = await db(); if (epoch !== cacheEpoch(url)) return; await d.runAsync('INSERT OR REPLACE INTO history_cache(url,session_id,data) VALUES (?,?,?)', url, sessionId, JSON.stringify(value)); }
 export async function clearCache(url: string) {
-  await clearEvents(url).catch(() => {});
+  await clearEvents(url).catch(() => {}); await clearDraftsFor(url).catch(() => {});
   bumpCacheEpoch(url);
   const d = await db();
   await d.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM history_cache WHERE url=?', url); await tx.runAsync('DELETE FROM harness_cache WHERE url=?', url); await tx.runAsync('DELETE FROM directory_cache WHERE url=?', url); });

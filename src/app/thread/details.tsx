@@ -138,7 +138,7 @@ export default function Details() {
       {client ? <Row icon="link-outline" title="Harness" subtitle={client.connection.url} chevron={false} copy={client.connection.url} /> : null}
     </Section>
     <ErrorNotice message={error} />
-  </ScrollView><ModelPicker sessionId={id} visible={picker} onClose={() => setPicker(false)} onSelected={() => {}} current={model} /></Screen>;
+  </ScrollView><ModelPicker sessionId={id} visible={picker} onClose={() => setPicker(false)} onSelected={() => {}} current={{ provider, model }} /></Screen>;
 }
 
 function StatLine({ label, value, strong, swatch, icon }: { label: string; value: string; strong?: boolean; swatch?: string; icon?: IconName }) {

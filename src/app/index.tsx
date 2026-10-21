@@ -22,8 +22,12 @@ import { useDialog } from '../components/Dialog';
 type Filter = 'All' | 'Working';
 
 /** Workspace tree home — layout and palette follow the approved glass prototype (screen 01). */
+/** Sessions listed directly under each workspace; the rest sit behind "Show more", revealed a page at a time. */
+const SESSIONS_SHOWN = 5;
+const SESSIONS_PAGE = 10;
+
 export default function Home() {
-  const { colors, sessions, workspaces, archived, pinned, client, status, deviceOffline, savedUrl, loading, refresh, refreshWorkspace, pending } = useApp();
+  const { colors, sessions, workspaces, archived, pinned, client, status, deviceOffline, savedUrl, loading, refresh, resync, refreshWorkspace, pending } = useApp();
   const insets = useSafeAreaInsets();
   const target = useRef<View>(null);
   const [query, setQuery] = useState(''); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState('');
@@ -43,14 +47,24 @@ export default function Home() {
   const isOpen = useCallback((id: string) => !!query || (openState[id] ?? !collapseByDefault), [query, openState, collapseByDefault]);
   const sections = useMemo(() => groups.map(g => {
     if (!isOpen(g.id)) return { ...g, data: [] as typeof g.sessions, more: 0 };
-    if (query || g.sessions.length <= 8) return { ...g, data: g.sessions, more: 0 };
-    const limit = shown[g.id] ?? 10;
+    if (query || g.sessions.length <= SESSIONS_SHOWN) return { ...g, data: g.sessions, more: 0 };
+    const limit = shown[g.id] ?? SESSIONS_SHOWN;
     return { ...g, data: g.sessions.slice(0, limit), more: Math.max(0, g.sessions.length - limit) };
   }), [groups, isOpen, query, shown]);
   const workingCount = sessions.filter(x => isListedSession(x) && live && x.running).length;
   const toggle = (id: string) => setOpenState(p => ({ ...p, [id]: !isOpen(id) }));
-  const showMore = (id: string) => setShown(p => ({ ...p, [id]: (p[id] ?? 10) + 10 }));
-  const reload = async () => { setRefreshing(true); try { await refresh(); setError(''); } catch (e) { setError(errorMessage(e)); } finally { setRefreshing(false); } };
+  const showMore = (id: string) => setShown(p => ({ ...p, [id]: (p[id] ?? SESSIONS_SHOWN) + SESSIONS_PAGE }));
+  // Pull-to-refresh = the same full sync as the "Synced …" button: reconnect the live socket if it dropped,
+  // then re-fetch sessions/workspaces. Keep the spinner up briefly so a fast refresh is still visible.
+  const reload = async () => {
+    setRefreshing(true); const started = Date.now();
+    try {
+      if (deviceOffline) throw new Error('This device is offline. Connect to a network to refresh.');
+      if (!client) throw new Error('Not connected to a Harness.');
+      await resync(); setError('');
+    } catch (e) { setError(errorMessage(e)); }
+    finally { const wait = 600 - (Date.now() - started); if (wait > 0) await new Promise(r => setTimeout(r, wait)); setRefreshing(false); }
+  };
   const host = client ? new URL(client.connection.url).host : savedUrl ? new URL(savedUrl).host : '';
   // Connection state shown beside the Harness host: green Live, gray Connecting…, red Offline.
   const connecting = !!host && (status === 'connecting' || status === 'reconnecting' || status === 'cached');
@@ -91,7 +105,7 @@ export default function Home() {
         stickySectionHeadersEnabled={false}
         keyExtractor={x => x.sessionId}
         keyboardDismissMode="on-drag"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} tintColor={colors.muted} progressViewOffset={60} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void reload()} tintColor={colors.text} colors={[colors.text]} progressBackgroundColor={colors.popover} progressViewOffset={insets.top + 72} />}
         contentContainerStyle={{ paddingTop: 60, paddingBottom: insets.bottom + 90, flexGrow: 1 }}
         ListHeaderComponent={<><UpdateBanner /><View style={{ paddingHorizontal: 12, gap: 10, paddingBottom: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -120,7 +134,7 @@ export default function Home() {
           <WorkspaceAction icon="add" label={`New session in ${section.title}`} disabled={!client || !live} onPress={() => router.push({ pathname: '/new', params: { cwd: section.path } })} />
           <WorkspaceAction icon="ellipsis-horizontal" label={`Options for ${section.title}`} onPress={() => workspaceMenu(section)} />
         </View>; }}
-        renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(10, section.more)} more sessions in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 29, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(10, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
+        renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(SESSIONS_PAGE, section.more)} more sessions in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 29, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(SESSIONS_PAGE, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
         renderItem={({ item, index, section }) => {
           const active = item.running && live; const attention = pending.some(p => p.agentId === item.sessionId);
           const finished = !active && !attention && unseen.has(item.sessionId);

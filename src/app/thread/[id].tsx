@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, FlatList, Platform, Pressable, View } from 'react-native';
+import { Animated, AppState, Easing, FlatList, Platform, Pressable, View } from 'react-native';
 // Frame-by-frame keyboard tracking: the composer follows the keyboard down when it hides, instead of
 // staying mid-screen over a blank area until the window finishes resizing.
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -10,6 +10,7 @@ import { useActionMenu } from '../../components/ActionMenu';
 import { ComposerContext, runQueuedNow, toQueueItem } from '../../components/ComposerContext';
 import { useDialog } from '../../components/Dialog';
 import { rewindTo, setPendingDraft, takePendingDraft } from '../../lib/rewind';
+import { clearDraft, flushDraft, peekDraft, readDraft, saveDraft } from '../../lib/draftStore';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { cacheEpoch, readHistory, writeHistory, type CachedHistory } from '../../lib/cache';
@@ -48,6 +49,22 @@ export default function Thread() {
   const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status, deviceOffline } = useApp();
   const harnessUrl = harness ?? client?.connection.url ?? savedUrl;
   useFocusEffect(useCallback(() => { if (id && harnessUrl) void rememberSession(harnessUrl, id); }, [id, harnessUrl]));
+  // Unsent text survives leaving the chat or closing the app; it's cleared only once Send/Steer succeeds.
+  // A rewind hands back its prompt first; otherwise the saved draft (already in memory after the first load).
+  const [draft, setDraftState] = useState(() => takePendingDraft(id) ?? (harnessUrl && id ? peekDraft(harnessUrl, id) : ''));
+  const setDraft = setDraftState;
+  // Persist whatever the composer holds (debounced inside saveDraft). Skips the first render so an
+  // untouched chat never writes, and an empty draft deletes the saved row.
+  const draftTouched = useRef(false);
+  useEffect(() => { if (!draftTouched.current) { draftTouched.current = true; return; } if (id && harnessUrl) saveDraft(harnessUrl, id, draft); }, [draft, id, harnessUrl]);
+  // First open after a cold start: drafts load from disk asynchronously, so fill in if still empty.
+  useEffect(() => { if (!id || !harnessUrl) return; let live = true; void readDraft(harnessUrl, id).then(saved => { if (live && saved) setDraftState(d => d || saved); }); return () => { live = false; }; }, [id, harnessUrl]);
+  // Leaving the chat or backgrounding the app writes the latest text straight away.
+  useEffect(() => {
+    if (!id || !harnessUrl) return;
+    const sub = AppState.addEventListener('change', st => { if (st !== 'active') void flushDraft(harnessUrl, id); });
+    return () => { sub.remove(); void flushDraft(harnessUrl, id); };
+  }, [id, harnessUrl]);
   // 'loading' until either the local cache or the live snapshot answers; the skeleton shows meanwhile.
   const [historyState, setHistoryState] = useState<'loading' | 'cached' | 'live'>('loading');
   // Offline warning only when the Harness is really unreachable; while Live but before the first
@@ -69,7 +86,7 @@ export default function Thread() {
     holdAnchor: (on: boolean) => setAnchorHolds(n => Math.max(0, n + (on ? 1 : -1))),
   }), []);
   const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false); const jumpShown = useRef(false);
-  const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState(''); const [draft, setDraft] = useState(() => takePendingDraft(id) ?? '');
+  const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState('');
   const [sending, setSending] = useState<{ key: string; text: string }[]>([]);
   const [error, setError] = useState(''); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
   const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
@@ -203,6 +220,8 @@ export default function Thread() {
       const catalog = Array.isArray(commands) ? commands : commands?.commands ?? [];
       if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client.call('commands/execute', { agentId: id, line: content, submittedAttachments: parts.filter(p => p.type !== 'text') });
       else await client.request('session/prompt', { requestId: key, sessionId: id, mode, content: parts, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      // Accepted: only now is the saved draft discarded (a failure below restores it instead).
+      if (harnessUrl) void clearDraft(harnessUrl, id);
       setRunning(true); scrollToBottom();
       // Keep the bubble until the Harness echoes the message (or a queue row shows it), max 8 s.
       setTimeout(() => setSending(s => s.filter(x => x.key !== key)), 8000);

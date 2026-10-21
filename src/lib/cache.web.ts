@@ -1,4 +1,5 @@
 import { clearEvents, storeBytes } from './eventStore';
+import { clearDraftsFor } from './draftStore';
 import type { Frame, Session, WireEvent } from './protocol';
 import type { CachedDirectory } from './directoryCache';
 import { bumpCacheEpoch, cacheEpoch } from './cacheEpoch';
@@ -17,7 +18,7 @@ async function listCachesBase(): Promise<{ url: string; bytes: number }[]> {
   const d = await open(); return new Promise((resolve, reject) => { const totals = new Map<string, number>(); const tx = d.transaction('cache'); const r = tx.objectStore('cache').openCursor(); r.onsuccess = () => { const c = r.result; if (c) { const [url] = JSON.parse(String(c.key)); totals.set(url, (totals.get(url) ?? 0) + new TextEncoder().encode(JSON.stringify(c.value)).length); c.continue(); } }; tx.oncomplete = () => { d.close(); resolve([...totals].map(([url, bytes]) => ({ url, bytes }))); }; tx.onerror = () => reject(tx.error); });
 }
 export async function clearCache(url: string) {
-  await clearEvents(url).catch(() => {}); bumpCacheEpoch(url); await remove(url); }
+  await clearEvents(url).catch(() => {}); await clearDraftsFor(url).catch(() => {}); bumpCacheEpoch(url); await remove(url); }
 async function remove(url: string, ids?: string[]) { const d = await open(); await new Promise<void>((resolve, reject) => { const tx = d.transaction('cache', 'readwrite'); const r = tx.objectStore('cache').openCursor(); r.onsuccess = () => { const c = r.result; if (c) { const [u, id] = JSON.parse(String(c.key)); if (u === url && (!ids || ids.includes(id))) c.delete(); c.continue(); } }; tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); d.close(); }
 export async function clearWorkspaceHistory(url: string, ids: string[]) { await clearEvents(url, ids).catch(() => {}); await remove(url, ids); }
 export async function readDirectoryCache(url: string, scope: string, path: string): Promise<CachedDirectory | null> {
