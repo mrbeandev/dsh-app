@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../state/app';
 import { errorMessage } from '../lib/harness';
 import { ErrorNotice, SearchField, T } from './ui';
+import { loadCatalog } from '../lib/modelNames';
 import { Sheet } from './Sheet';
 
 /** "Choose model" sheet as in the approved prototype (screen 03): caps provider labels, outlined selected row. */
@@ -18,7 +19,8 @@ export function isCurrentModel(current: { provider?: string; model?: string } | 
 
 export function ModelPicker({ sessionId, visible, onClose, onSelected, current }: { sessionId: string; visible: boolean; onClose: () => void; onSelected: (choice: { provider: string; model: string; label: string }) => void; current?: { provider?: string; model?: string } }) {
   const { client, colors, refresh } = useApp(); const [catalog, setCatalog] = useState<any>(null); const [query, setQuery] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  useEffect(() => { if (!visible || !client) return; let active = true; void client.call('session/modelCatalog', {}).then(c => { if (active) setCatalog(c); }).catch(e => { if (active) setError(errorMessage(e)); }); return () => { active = false; }; }, [client, visible]);
+  // Refresh the shared catalog each time the picker opens (new providers/plugins), which also updates names shown elsewhere.
+  useEffect(() => { if (!visible || !client) return; let active = true; void loadCatalog(client, true).then(c => { if (!active) return; if (c) setCatalog(c); else setError('Could not load the model list.'); }); return () => { active = false; }; }, [client, visible]);
   const allGroups: any[] = useMemo(() => catalog?.groups ?? catalog?.providers ?? [], [catalog]);
   // Exactly one row is checked, even when several providers list the same model id or name.
   const currentKey = useMemo(() => { for (const g of allGroups) for (const m of g.models ?? []) if (isCurrentModel(current, g.id, m)) return `${g.id}\u0000${m.id}`; return ''; }, [allGroups, current]);

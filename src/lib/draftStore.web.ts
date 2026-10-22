@@ -11,5 +11,10 @@ export function saveDraft(url: string, sessionId: string, text: string) { set(ke
 export async function flushDraft() { /* writes are synchronous */ }
 export async function clearDraft(url: string, sessionId: string) { set(key(url, sessionId), ''); }
 export async function clearDraftsFor(url: string) {
-  try { for (const k of Object.keys(localStorage)) if (k.startsWith(`${PREFIX}${url}\u0000`)) localStorage.removeItem(k); } catch { /* storage unavailable */ }
+  try { for (const k of Object.keys(localStorage)) if (k.startsWith(`${PREFIX}${url}\u0000`) || k.startsWith(`${FILES}${url}\u0000`)) localStorage.removeItem(k); } catch { /* storage unavailable */ }
 }
+
+export type SavedImport = { id: string; uri: string; name: string; mimeType?: string; size?: number; image: boolean; receiptId?: string; error?: string };
+const FILES = 'dsh.draft-files.';
+export async function readDraftFiles(url: string, sessionId: string): Promise<SavedImport[]> { try { return JSON.parse(localStorage.getItem(`${FILES}${url}\u0000${sessionId}`) ?? '[]'); } catch { return []; } }
+export async function saveDraftFiles(url: string, sessionId: string, list: SavedImport[]) { try { const k = `${FILES}${url}\u0000${sessionId}`; if (list.length) localStorage.setItem(k, JSON.stringify(list)); else localStorage.removeItem(k); } catch { /* storage unavailable */ } }

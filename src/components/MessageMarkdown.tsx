@@ -6,7 +6,11 @@ import * as Clipboard from 'expo-clipboard';
 import { useApp, type Colors } from '../state/app';
 
 // Never execute HTML or load remote images automatically from model output.
-const parser = MarkdownIt({ html: false, linkify: false, typographer: false });
+const parser = MarkdownIt({ html: false, linkify: true, typographer: false });
+// Auto-link only explicit web addresses (http:// / https://). Disable bare "example.com" fuzzy matching
+// and e-mail detection so file names, code-like words and paths never turn into links.
+parser.linkify.set({ fuzzyLink: false, fuzzyEmail: false, fuzzyIP: false });
+for (const scheme of ['ftp:', 'mailto:', '//']) parser.linkify.add(scheme, null);
 export function safeMessageLink(url: string) { return /^https?:\/\//i.test(url) || /^mailto:/i.test(url); }
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
@@ -45,7 +49,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: s
     heading2: { fontSize: 14, lineHeight: 19, fontWeight: '600', marginTop: 5, marginBottom: 3 },
     heading3: { fontSize: 13, lineHeight: 18, fontWeight: '600', marginTop: 4, marginBottom: 3 },
     strong: { fontWeight: '600' }, em: { fontStyle: 'italic' },
-    link: { color: colors.link, textDecorationLine: 'none' },
+    link: { color: colors.link, textDecorationLine: 'underline' },
     bullet_list: { marginBottom: 6 }, ordered_list: { marginBottom: 6 }, list_item: { marginBottom: 2 },
     bullet_list_icon: { color: colors.muted, marginLeft: 2, marginRight: 6 }, ordered_list_icon: { color: colors.muted, marginRight: 6 },
     hr: { backgroundColor: colors.separator, height: StyleSheet.hairlineWidth, marginVertical: 10 },

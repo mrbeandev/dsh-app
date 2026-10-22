@@ -121,7 +121,7 @@ function fullRow(events: WireEvent[], id: string): TranscriptRow | undefined {
 
 function prettyArgs(args: string) { try { return JSON.stringify(JSON.parse(args), null, 2); } catch { return args; } }
 
-export const ChatRow = memo(function ChatRow({ row, onUserAction, highlighted }: { row: TranscriptRow; onUserAction?: (row: Extract<TranscriptRow, { kind: 'user' }>) => void; highlighted?: boolean }) {
+export const ChatRow = memo(function ChatRow({ row, onUserAction, onReplyAction, highlighted }: { row: TranscriptRow; onUserAction?: (row: Extract<TranscriptRow, { kind: 'user' }>) => void; onReplyAction?: (row: Extract<TranscriptRow, { kind: 'assistant' }>) => void; highlighted?: boolean }) {
   const { colors } = useApp();
   const steps = useContext(StepDetailContext);
   const seq = Number(row.id);
@@ -135,7 +135,7 @@ export const ChatRow = memo(function ChatRow({ row, onUserAction, highlighted }:
         {row.reasoning ? (row.lite
           ? <ProcessRow icon="bulb-outline" title="Thought" load={async () => { const r = fullRow(await loadRange(seq, seq), row.id); return r?.kind === 'assistant' && r.reasoning ? <Mono text={r.reasoning} /> : null; }} />
           : <ProcessRow icon="bulb-outline" title="Thought" detail={row.reasoning.split('\n')[0].slice(0, 60)}><Mono text={row.reasoning} /></ProcessRow>) : null}
-        {row.text ? <View><View style={{ marginBottom: 3 }}><T style="caption2" color="secondary">Assistant</T></View><MessageMarkdown text={row.text} />{row.interrupted ? <T style="caption1" color="tertiary">Interrupted</T> : null}</View> : null}
+        {row.text ? <Pressable accessibilityHint={onReplyAction ? 'Long-press to copy or select text' : undefined} delayLongPress={350} onLongPress={onReplyAction ? () => onReplyAction(row) : undefined}><View style={{ marginBottom: 3 }}><T style="caption2" color="secondary">Assistant</T></View><MessageMarkdown text={row.text} />{row.interrupted ? <T style="caption1" color="tertiary">Interrupted</T> : null}</Pressable> : null}
       </View>;
     case 'tool': {
       // Web UI title: "Bash · Watch sync time" — the tool's label plus the agent-written description

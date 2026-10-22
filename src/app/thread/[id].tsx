@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, AppState, Easing, FlatList, Platform, Pressable, View } from 'react-native';
+import { Animated, AppState, Easing, FlatList, Platform, Pressable, StyleSheet, View } from 'react-native';
 // Frame-by-frame keyboard tracking: the composer follows the keyboard down when it hides, instead of
 // staying mid-screen over a blank area until the window finishes resizing.
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -31,8 +31,11 @@ import { useUnseen } from '../../state/unseen';
 import { ChatScrollContext } from '../../components/chatScroll';
 import { SwipeBack } from '../../components/SwipeBack';
 import { GestureDetector } from 'react-native-gesture-handler';
-import { errorMessage } from '../../lib/harness';
-import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent } from '../../lib/protocol';
+import { errorMessage, isTransportError } from '../../lib/harness';
+import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent, type TranscriptRow } from '../../lib/protocol';
+import { replyText, turnText } from '../../lib/copyText';
+import { enqueue, listOutbox, onOutboxChange, removeOutbox, updateOutbox, type OutboxItem } from '../../lib/outbox';
+import { SelectTextSheet } from '../../components/SelectTextSheet';
 import { expandStream, streamText } from '../../lib/stream';
 import { liteEvent, sameRecords } from '../../lib/lite';
 import { coverage, eventsBetween, putEvents } from '../../lib/eventStore';
@@ -40,7 +43,7 @@ import { backfill, markInteraction, turnEvents } from '../../lib/historySync';
 import { StepDetailContext } from '../../components/stepDetail';
 import { rememberSession } from '../../lib/recentSession';
 import { useImports } from '../../lib/useImports';
-import { promptWithImports } from '../../lib/imports';
+import { promptWithImports, type ImportItem, type PromptPart } from '../../lib/imports';
 import { diagnostic } from '../../lib/diagnostics';
 
 /** List anchoring (keeps your place as new messages arrive); paused while a row expands. */
@@ -91,7 +94,7 @@ export default function Thread() {
   const [error, setError] = useState(''); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
   const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
   const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
-  const { applyProjections } = useApp();
+  const { applyProjections, flushOutbox } = useApp();
   const session = sessions.find(x => x.sessionId === id);
   const notify = useNotifications();
   const { setViewing: setSeenViewing } = useUnseen();
@@ -127,10 +130,16 @@ export default function Thread() {
         const full: WireEvent[] = (frame.records ?? []).filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event);
         // Full bodies go to the phone's event DB; the screen and the quick-open cache keep lite copies.
         void putEvents(harnessUrl, id, full, { reachedStart: !frame.hasMore }, epoch).catch(() => {});
-        const lite = full.map(liteEvent);
-        history.current = { records: lite, cursor: frame.cursor, hasMore: frame.hasMore, savedAt: Date.now() }; save();
+        // A snapshot only carries the newest messages. Keep older history already loaded on screen (a
+        // reconnect used to drop it, leaving the top of the chat unreachable) and only extend backwards.
+        const fresh = full.map(liteEvent);
+        const oldestFresh = fresh[0]?.seq ?? Infinity;
+        const kept = history.current.records.filter(e => e.seq < oldestFresh);
+        const lite = kept.length ? [...kept, ...fresh] : fresh;
+        const more = kept.length ? history.current.hasMore : !!frame.hasMore;
+        history.current = { records: lite, cursor: frame.cursor, hasMore: more, savedAt: Date.now() }; save();
         // Usually identical to the cached copy already on screen: keep the same array so the list doesn't re-render.
-        setRecords(prev => sameRecords(prev, lite) ? prev : lite); setCursor(frame.cursor); setHasMore(frame.hasMore);
+        setRecords(prev => sameRecords(prev, lite) ? prev : lite); setCursor(frame.cursor); setHasMore(more);
         // Keep the phone's copy of this chat complete: page older history in quietly.
         sync.abort(); sync = new AbortController();
         if (frame.hasMore) void backfill(client, harnessUrl, id, address, frame.cursor, sync.signal).catch(() => {}); liveChunks.current.clear(); setLive('');
@@ -204,34 +213,95 @@ export default function Thread() {
       { label: 'Copy Text', icon: 'copy-outline', onPress: () => { void Clipboard.setStringAsync(row.text); } },
     ] });
   }, [menu, dialog, client, id, session, running, refresh, harnessUrl, records]);
+  // Long-press on an AI reply: copy just the answer, or the whole turn (thinking + every tool call with
+  // input/output), or open the text in a selectable view to copy only part of it.
+  const [selectText, setSelectText] = useState<string | null>(null);
+  const replyMenu = useCallback((row: Extract<TranscriptRow, { kind: 'assistant' }>) => {
+    const answer = replyText(row);
+    // The folded "Completed in …" group sits directly before this reply in the transcript.
+    const at = rows.findIndex(r => r.id === row.id);
+    const prev = at > 0 ? rows[at - 1] : undefined;
+    const turn = prev?.kind === 'turn' ? prev : undefined;
+    const fromSeq = turn ? Math.min(...turn.rows.map(r => Number(String(r.id).split(':')[0])).filter(Number.isFinite)) : Number(row.id);
+    const toSeq = Number(row.id);
+    const copyAll = async () => {
+      try {
+        const events = Number.isFinite(fromSeq) ? await steps.load(fromSeq, toSeq) : [];
+        const text = events.length ? turnText(events) : answer;
+        await Clipboard.setStringAsync(text || answer);
+      } catch (e) { await dialog.alert('Couldn’t Copy', errorMessage(e), 'danger'); }
+    };
+    menu({ title: 'Assistant reply', subtitle: answer.length > 90 ? `${answer.slice(0, 90)}…` : answer, actions: [
+      { label: 'Copy Reply', icon: 'copy-outline', detail: 'The answer text (Markdown)', onPress: () => { void Clipboard.setStringAsync(answer); } },
+      { label: 'Select Text', icon: 'text-outline', detail: 'Pick part of the reply to copy', onPress: () => setSelectText(answer) },
+      ...(turn ? [{ label: 'Copy with Tool Calls', icon: 'list-outline' as const, detail: `Thinking, ${turn.tools} tool call${turn.tools === 1 ? '' : 's'} with inputs and outputs, and the reply`, onPress: () => { void copyAll(); } }] : []),
+    ] });
+  }, [menu, dialog, rows, steps]);
   // Optimistic send (Web UI parity): the draft clears and a "Sending…" bubble appears immediately; on
   // a slow tunnel the request can take seconds. A failure removes the bubble and restores the draft.
-  const imports = useImports(client, id, setError);
+  const imports = useImports(client, id, setError, harnessUrl);
+  // Offline outbox for this session: shown as "Waiting to send" bubbles until delivered.
+  const [outbox, setOutbox] = useState<OutboxItem[]>([]);
+  useEffect(() => {
+    if (!harnessUrl || !id) return;
+    let live = true;
+    const load = () => { void listOutbox(harnessUrl, id).then(list => { if (live) setOutbox(list); }).catch(() => {}); };
+    load(); const off = onOutboxChange(load);
+    return () => { live = false; off(); };
+  }, [harnessUrl, id]);
+  const connected = !!client && status === 'connected';
+  const queueOffline = async (content: string, parts: PromptPart[], mode: 'queue' | 'steer', key: string, selected: ImportItem[]) => {
+    if (!harnessUrl) throw new Error('Not connected to a Harness.');
+    await enqueue({ id: key, url: harnessUrl, sessionId: id, text: content || selected.map(i => `Attachment: ${i.name}`).join('\n'), parts, mode });
+    void clearDraft(harnessUrl, id); imports.sent(selected); scrollToBottom();
+  };
   const send = async (mode: 'queue' | 'steer' = 'queue') => {
-    if (!client || (!draft.trim() && !imports.items.length)) return;
-    if (imports.items.some(i => i.state !== 'ready')) { setError('Wait for attachments to finish or remove failed imports.'); return; }
+    if (!draft.trim() && !imports.items.length) return;
+    if (imports.items.some(i => i.state !== 'ready')) { setError(connected ? 'Wait for attachments to finish or remove failed imports.' : 'Attachments finish uploading once you’re back online. Send the text now or wait.'); return; }
     diagnostic('prompt.submit', { count: imports.items.length, phase: mode, pending: sending.length });
     const selected = imports.items; const content = draft.trim(); const parts = promptWithImports(content, selected); const key = randomUUID();
-    setError(''); setDraft(''); imports.setItems([]); setSending(s => [...s, { key, text: [content, ...selected.map(i => `Attachment: ${i.name}`)].filter(Boolean).join('\n') }]); scrollToBottom();
+    setError(''); setDraft(''); imports.setItems([]);
+    // Disconnected: keep it in the local outbox; it's delivered in order as soon as the Harness is reachable.
+    // Slash commands need the Harness to resolve, so they're sent as plain prompts from the outbox.
+    if (!connected) {
+      try { await queueOffline(content, parts, mode, key, selected); }
+      catch (e) { setDraft(d => d.trim() ? d : content); imports.setItems(current => [...selected, ...current]); setError(errorMessage(e)); }
+      return;
+    }
+    setSending(s => [...s, { key, text: [content, ...selected.map(i => `Attachment: ${i.name}`)].filter(Boolean).join('\n') }]); scrollToBottom();
     try {
+      // Messages already waiting go first so the order you typed them in is kept.
+      if (outbox.length) await flushOutbox();
       // Commands have a separate strict write path; unregistered slash names remain prompts (skills).
       const name = content.match(/^\/(\S+)/)?.[1];
-      const commands = name ? await client.call('commands/list', { agentId: id }) : null;
+      const commands = name ? await client!.call('commands/list', { agentId: id }) : null;
       const catalog = Array.isArray(commands) ? commands : commands?.commands ?? [];
-      if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client.call('commands/execute', { agentId: id, line: content, submittedAttachments: parts.filter(p => p.type !== 'text') });
-      else await client.request('session/prompt', { requestId: key, sessionId: id, mode, content: parts, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client!.call('commands/execute', { agentId: id, line: content, submittedAttachments: parts.filter(p => p.type !== 'text') });
+      else await client!.request('session/prompt', { requestId: key, sessionId: id, mode, content: parts, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
       // Accepted: only now is the saved draft discarded (a failure below restores it instead).
       if (harnessUrl) void clearDraft(harnessUrl, id);
+      imports.sent(selected);
       setRunning(true); scrollToBottom();
       // Keep the bubble until the Harness echoes the message (or a queue row shows it), max 8 s.
       setTimeout(() => setSending(s => s.filter(x => x.key !== key)), 8000);
     } catch (e) {
       setSending(s => s.filter(x => x.key !== key));
+      // The connection dropped mid-send: don't lose it — move it to the outbox (same request id, so no duplicate).
+      if (isTransportError(e) && harnessUrl) {
+        try { await queueOffline(content, parts, mode, key, selected); return; } catch { /* fall through to restore */ }
+      }
       setDraft(d => d.trim() ? d : content);
       imports.setItems(current => [...selected, ...current]);
       setError(errorMessage(e));
     }
   };
+  const outboxMenu = useCallback((item: OutboxItem) => {
+    menu({ title: item.error ? 'Couldn’t send' : 'Waiting to send', subtitle: item.error ?? (item.text.length > 90 ? `${item.text.slice(0, 90)}…` : item.text), actions: [
+      ...(item.error ? [{ label: 'Try Again', icon: 'refresh-outline' as const, onPress: () => { void updateOutbox({ ...item, error: undefined }).then(() => flushOutbox()); } }] : []),
+      { label: 'Edit', icon: 'create-outline', detail: 'Move it back into the message box', onPress: () => { void removeOutbox(item.id).then(() => setDraft(d => d.trim() ? `${d}\n${item.text}` : item.text)); } },
+      { label: 'Delete', icon: 'trash-outline', destructive: true, onPress: () => { void removeOutbox(item.id); } },
+    ] });
+  }, [menu, flushOutbox, setDraft]);
   // Drop a Sending… bubble as soon as the Harness has it: the durable user message (or queue row)
   // carries source.rpcId = our request id.
   const projectionValues = session?.projections?.values;
@@ -266,22 +336,33 @@ export default function Thread() {
   const loadingOlder = useRef(false); const [olderBusy, setOlderBusy] = useState(false);
   // Load older messages: from the phone's event DB when it already has them (background backfill),
   // otherwise one page from the Harness (stored in full). The screen only keeps lite copies.
+  // Load the next older page. Prefer the phone's own event store; if it doesn't reach further back,
+  // ask the Harness. A page that only adds hidden events (tool steps fold into a group, system rows)
+  // used to look like "nothing loaded" and onEndReached never fired again, so keep paging until at
+  // least one new visible row appears or the start of the session is reached.
   const older = async () => {
     if (!client || !records.length || loadingOlder.current) return; loadingOlder.current = true; setOlderBusy(true);
     try {
-      const before = records[0].seq;
-      const cov = await coverage(harnessUrl, id);
-      let full: WireEvent[]; let more: boolean;
-      if (cov && cov.low < before) {
-        full = await eventsBetween(harnessUrl, id, Math.max(cov.low, before - 400), before - 1);
-        more = !cov.complete || full[0]?.seq > cov.low;
-      } else {
-        const page = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: before, maxMessages: 30 });
-        full = page.records.filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event);
-        more = page.hasMore; void putEvents(harnessUrl, id, full, { reachedStart: !page.hasMore }).catch(() => {});
+      const visibleBefore = rows.length;
+      let more = hasMore;
+      for (let round = 0; round < 6; round++) {
+        const before = history.current.records[0]?.seq ?? records[0].seq;
+        const cov = await coverage(harnessUrl, id);
+        let full: WireEvent[] = [];
+        if (cov && cov.low < before) {
+          full = await eventsBetween(harnessUrl, id, Math.max(cov.low, before - 400), before - 1);
+          more = full.length > 0 ? (!cov.complete || full[0].seq > cov.low) : !cov.complete;
+        }
+        if (!full.length) {
+          const page = await client.request('session/page', { address, throughSeq: cursor, beforeSeq: before, maxMessages: 30 });
+          full = page.records.filter((r: Frame) => r.type === 'event').map((r: Frame) => r.event);
+          more = !!page.hasMore && full.length > 0; void putEvents(harnessUrl, id, full, { reachedStart: !page.hasMore }).catch(() => {});
+        }
+        const merged = new Map(history.current.records.map(e => [e.seq, e])); for (const e of full) merged.set(e.seq, liteEvent(e));
+        history.current = { ...history.current, records: [...merged.values()].sort((x, y) => x.seq - y.seq), hasMore: more, savedAt: Date.now() };
+        const visibleNow = foldTurns(history.current.records, buildTranscript(history.current.records)).length;
+        if (!more || visibleNow > visibleBefore) break;
       }
-      const merged = new Map(history.current.records.map(e => [e.seq, e])); for (const e of full) merged.set(e.seq, liteEvent(e));
-      history.current = { ...history.current, records: [...merged.values()].sort((x, y) => x.seq - y.seq), hasMore: more, savedAt: Date.now() };
       setRecords(history.current.records); setHasMore(more); await writeHistory(harnessUrl, id, history.current);
     } catch (e) { setError(errorMessage(e)); } finally { loadingOlder.current = false; setOlderBusy(false); }
   };
@@ -346,32 +427,32 @@ export default function Thread() {
       <GlassTarget target={target}>
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
         {historyState === 'loading' && !rows.length ? <View style={{ flex: 1, paddingHorizontal: 14, paddingTop: 62 }}><SkeletonChat /></View>
-        : !rows.length && !working ? <View style={{ flex: 1, justifyContent: 'center', paddingTop: 62 }}><Empty icon="sparkles-outline" title="New Session" detail="Describe a task or ask a question. Your Harness does the rest." /></View>
+        : !rows.length && !working && !outbox.length ? <View style={{ flex: 1, justifyContent: 'center', paddingTop: 62 }}><Empty icon="sparkles-outline" title="New Session" detail="Describe a task or ask a question. Your Harness does the rest." /></View>
         : <Animated.View style={{ flex: 1, opacity: fade }}><ChatScrollContext.Provider value={chatScroll}><StepDetailContext.Provider value={steps}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
           // Inverted: the footer renders at the visual bottom (live text, pending requests), the header at the top.
           maintainVisibleContentPosition={anchorHolds ? undefined : MVCP}
           initialNumToRender={14} maxToRenderPerBatch={12} windowSize={11} removeClippedSubviews={Platform.OS === 'android'}
           onScrollBeginDrag={() => { userScrolled.current = true; markInteraction(); }} onMomentumScrollEnd={() => markInteraction(400)}
           onScroll={e => { const y = e.nativeEvent.contentOffset.y; scrollY.current = y; markInteraction(600); if (!userScrolled.current) return; atBottom.current = y < 100; const show = y > 300; if (show !== jumpShown.current) { jumpShown.current = show; setJumpVisible(show); } }} scrollEventThrottle={16}
-          onEndReached={() => { if (hasMore) void older(); }} onEndReachedThreshold={0.6}
+          onEndReached={() => { if (hasMore) void older(); }} onEndReachedThreshold={1.2}
           onScrollToIndexFailed={info => { list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); setTimeout(() => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.35, animated: true }), 120); }}
           keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 62 }}
-          ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{pendingSends.map(s => <View key={s.key} style={{ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, opacity: 0.75 }}><T style="caption2" color="secondary">You · Sending…</T><T style="footnote" numberOfLines={6}>{s.text}</T></View>)}{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={`${p.clientId}:${p.eventId}`} frame={p} /> : <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
-          ListFooterComponent={hasMore ? <View style={{ alignItems: 'center', paddingVertical: 10 }}>{olderBusy ? <Dots size="sm" /> : <Pressable accessibilityRole="button" onPress={() => void older()} style={({ pressed }) => ({ height: 30, paddingHorizontal: 14, borderRadius: 15, justifyContent: 'center', backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 })}><T style="caption1" color="secondary">Load earlier messages</T></Pressable>}</View> : null}
-          renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} /></View>; }} /></GestureDetector></StepDetailContext.Provider></ChatScrollContext.Provider></Animated.View>}
+          contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: hasMore ? 0 : 62 }}
+          ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{[...outbox].reverse().map(o => <Pressable key={o.id} accessibilityRole="button" accessibilityLabel={o.error ? `Couldn’t send: ${o.text}` : `Waiting to send: ${o.text}`} accessibilityHint="Tap for options" onPress={() => outboxMenu(o)} style={({ pressed }) => ({ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, borderWidth: 1, borderStyle: 'dashed', borderColor: o.error ? colors.danger : colors.border, opacity: pressed ? 0.6 : 0.85 })}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 }}><Ionicons name={o.error ? 'alert-circle-outline' : connected ? 'arrow-up-circle-outline' : 'time-outline'} size={12} color={o.error ? colors.danger : colors.muted} /><T style="caption2" color={o.error ? 'danger' : 'secondary'}>{o.error ? 'Couldn’t send · tap for options' : connected ? 'Sending…' : 'Waiting for connection'}</T></View><T style="footnote" numberOfLines={6}>{o.text}</T></Pressable>)}{pendingSends.map(s => <View key={s.key} style={{ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, opacity: 0.75 }}><T style="caption2" color="secondary">You · Sending…</T><T style="footnote" numberOfLines={6}>{s.text}</T></View>)}{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={`${p.clientId}:${p.eventId}`} frame={p} /> : <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
+          ListFooterComponent={hasMore ? <View style={{ alignItems: 'center', paddingTop: 66, paddingBottom: 8 }}>{olderBusy ? <View accessibilityLabel="Loading earlier messages" style={{ height: 34, justifyContent: 'center' }}><Dots size="sm" /></View> : <Pressable accessibilityRole="button" accessibilityLabel="Load earlier messages" onPress={() => void older()} hitSlop={8} style={({ pressed }) => ({ height: 34, paddingHorizontal: 14, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: pressed ? colors.state : colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border })}><Ionicons name="arrow-up" size={13} color={colors.muted} /><T style="caption1" color="secondary">Load earlier messages</T></Pressable>}</View> : null}
+          renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} onReplyAction={replyMenu} /></View>; }} /></GestureDetector></StepDetailContext.Provider></ChatScrollContext.Provider></Animated.View>}
         </View></GestureDetector>
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
       </GlassTarget>
-      <ErrorNotice message={deviceOffline ? '' : error} />
+      <ErrorNotice message={deviceOffline && /network|offline|connect/i.test(error) ? '' : error} />
       <GlassTargetProvider value={target}>
         {/* Only when actually disconnected: while Live, cached rows are just the brief warm-up before the fresh history arrives. */}
         {/* Live but the latest history is still in flight: show a sync state, not the offline warning. */}
         {syncingLive ? <View accessibilityRole="progressbar" accessibilityLabel="Syncing latest messages" accessibilityLiveRegion="polite" style={{ marginHorizontal: 12, marginBottom: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.glassEdge }}><Dots size="sm" /><T style="caption1" color="secondary">Syncing latest messages…</T></View> : null}
         {offlineCache ? <View accessibilityRole="alert" style={{ marginHorizontal: 12, marginBottom: 6, padding: 10, borderRadius: 10, flexDirection: 'row', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.warning }}><Ionicons name="warning-outline" size={18} color={colors.warning} /><View style={{ flex: 1 }}><T style="caption1" weight="600" color={colors.warning}>{deviceOffline ? 'Device offline · Local cache' : 'Showing local cache'}</T><T style="caption1" color="secondary">Connect to your Harness to get the latest chat data.</T></View></View> : null}
         <ComposerContext sessionId={id} running={running} values={(session?.projections?.values as Record<string, any>) ?? {}} />
-        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={!client || status !== 'connected'} onStop={stopTurn}  />}
+        {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={false} offline={!connected} onStop={stopTurn}  />}
       </GlassTargetProvider>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
@@ -385,6 +466,7 @@ export default function Thread() {
         </GlassTargetProvider>
       </View>
     </KeyboardAvoidingView>
+    <SelectTextSheet text={selectText} onClose={() => setSelectText(null)} />
     <PromptIndex sessionId={id} outline={outline} visible={promptsOpen} onClose={() => setPromptsOpen(false)} onJump={e => void jumpTo(e)} />
   </Screen></SwipeBack>;
 }

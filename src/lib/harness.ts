@@ -9,6 +9,11 @@ import { friendlyNetworkError } from './connectivity';
 export class HarnessError extends Error {
   constructor(public code: string, message: string) { super(message); }
 }
+/** True when a request never reached the Harness (offline, timeout, tunnel down, 5xx, expired login): safe to retry later. */
+export function isTransportError(e: unknown) {
+  if (e instanceof HarnessError) return e.code === 'transport' || e.code === 'unauthenticated';
+  return true; // fetch rejections (network/DNS/timeout/abort) carry no Harness error code
+}
 export class HarnessClient {
   connection: Connection;
   private socket: WebSocket | null = null;

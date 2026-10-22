@@ -10,7 +10,7 @@ import * as SQLite from 'expo-sqlite';
 let database: Promise<SQLite.SQLiteDatabase> | undefined;
 async function db() {
   database ??= SQLite.openDatabaseAsync('dsh-drafts.db').then(async d => {
-    await d.execAsync('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS drafts(url TEXT NOT NULL, session_id TEXT NOT NULL, text TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(url, session_id));');
+    await d.execAsync('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS drafts(url TEXT NOT NULL, session_id TEXT NOT NULL, text TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(url, session_id)); CREATE TABLE IF NOT EXISTS draft_files(url TEXT NOT NULL, session_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(url, session_id));');
     return d;
   });
   return database;
@@ -73,5 +73,32 @@ export async function clearDraft(url: string, sessionId: string) {
 /** Cache clearing for a Harness also drops its drafts. */
 export async function clearDraftsFor(url: string) {
   for (const k of [...memory.keys()]) if (k.startsWith(`${url}\u0000`)) memory.delete(k);
-  await (await db()).runAsync('DELETE FROM drafts WHERE url=?', url).catch(() => {});
+  for (const k of [...files.keys()]) if (k.startsWith(`${url}\u0000`)) files.delete(k);
+  const d = await db();
+  await d.runAsync('DELETE FROM drafts WHERE url=?', url).catch(() => {});
+  await d.runAsync('DELETE FROM draft_files WHERE url=?', url).catch(() => {});
+}
+
+/**
+ * Attachments picked for an unsent message, saved alongside the text. Only small metadata is stored
+ * (file location, name, upload receipt); image bytes are re-read from the saved file when restored.
+ */
+export type SavedImport = { id: string; uri: string; name: string; mimeType?: string; size?: number; image: boolean; receiptId?: string; error?: string };
+const files = new Map<string, SavedImport[]>();
+
+export async function readDraftFiles(url: string, sessionId: string): Promise<SavedImport[]> {
+  const k = key(url, sessionId);
+  if (files.has(k)) return files.get(k)!;
+  const row = await (await db()).getFirstAsync<{ data: string }>('SELECT data FROM draft_files WHERE url=? AND session_id=?', url, sessionId).catch(() => null);
+  const list: SavedImport[] = row ? JSON.parse(row.data) : [];
+  files.set(k, list);
+  return list;
+}
+
+export async function saveDraftFiles(url: string, sessionId: string, list: SavedImport[]) {
+  const k = key(url, sessionId);
+  files.set(k, list);
+  const d = await db();
+  if (list.length) await d.runAsync('INSERT OR REPLACE INTO draft_files(url, session_id, data) VALUES (?,?,?)', url, sessionId, JSON.stringify(list));
+  else await d.runAsync('DELETE FROM draft_files WHERE url=? AND session_id=?', url, sessionId);
 }

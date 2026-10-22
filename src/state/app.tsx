@@ -3,14 +3,15 @@ import { AppState as RNAppState, Platform, useColorScheme } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Network from 'expo-network';
 import { deviceIsOffline } from '../lib/connectivity';
-import { HarnessClient } from '../lib/harness';
+import { errorMessage, HarnessClient, isTransportError } from '../lib/harness';
+import { drainOutbox, type OutboxItem } from '../lib/outbox';
 import { Connection, Frame, Session } from '../lib/protocol';
 import { applyBaseline, mergeRefreshed, withValues } from '../lib/projections';
 import { cacheEpoch, readCatalog, writeCatalog, clearWorkspaceHistory } from '../lib/cache';
 import { light, dark, type SolidGlassColors } from '../lib/solidGlass';
 type ThemeMode = 'system' | 'light' | 'dark';
 export type Colors = SolidGlassColors;
-type AppState = { client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; deviceOffline: boolean; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
+type AppState = { flushOutbox: () => Promise<void>; client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; deviceOffline: boolean; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
 const credentials = { read: async () => Platform.OS === 'web' ? null : SecureStore.getItemAsync('dsh.connection'), save: async (c: Connection) => { if (Platform.OS !== 'web') await SecureStore.setItemAsync('dsh.connection', JSON.stringify(c)); }, clear: async () => { if (Platform.OS !== 'web') await SecureStore.deleteItemAsync('dsh.connection'); } };
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -54,6 +55,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })();
     refreshFlight.current = task; try { await task; } finally { if (refreshFlight.current === task) refreshFlight.current = null; }
   }, []);
+  // Offline outbox: messages typed while disconnected are delivered here, in order, once connected.
+  const draining = useRef(false);
+  const flushOutbox = useCallback(async () => {
+    const c = current.current; if (!c || draining.current || offlineRef.current) return;
+    draining.current = true;
+    try {
+      const deliver = (item: OutboxItem) => c.request('session/prompt', { requestId: item.id, sessionId: item.sessionId, mode: item.mode, content: item.parts, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(() => {});
+      const { sent } = await drainOutbox(c.connection.url, deliver, isTransportError, errorMessage);
+      if (sent) void refresh().catch(() => {});
+    } finally { draining.current = false; }
+  }, [refresh]);
   const connect = useCallback(async (connection: Connection) => {
     const next = new HarnessClient(connection); await next.authenticate(); await credentials.save(next.connection);
     current.current?.disconnect(); current.current = next; refreshFlight.current = null;
@@ -65,7 +77,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleRefresh = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { if (current.current === next) void refresh().catch(() => {}); }, 250); };
     next.follow('$events', {}, frame => {
-      if (frame.type === 'ready') { next.clientId = frame.clientId; setPending([]); setStatus('connected'); scheduleRefresh(); }
+      if (frame.type === 'ready') { next.clientId = frame.clientId; setPending([]); setStatus('connected'); scheduleRefresh(); void flushOutbox(); }
       if (frame.type === 'waterfall') setPending(p => [...p.filter(x => x.eventId !== frame.eventId), { ...frame, clientId: next.clientId }]);
       if (frame.type === 'cancel') setPending(p => p.filter(x => x.eventId !== frame.eventId));
       if (frame.type === 'emit' && frame.event === 'api-session/status') {
@@ -91,7 +103,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setWorkspaces(catalog.current.workspaces); persist(); scheduleRefresh();
     });
     next.connectStreams(); await refresh();
-  }, [refresh, persist]);
+  }, [refresh, persist, flushOutbox]);
   const disconnect = async () => { current.current?.disconnect(); current.current = null; setClient(null); setSessions([]); setWorkspaces([]); setArchived([]); setPinned([]); setPending([]); setStatus('disconnected'); await credentials.clear(); };
   /** Merge authoritative projection values for one session (e.g. from its follow snapshot). */
   const applyProjections = useCallback((sessionId: string, values: Record<string, unknown>) => {
@@ -129,11 +141,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const tick = () => {
       if (RNAppState.currentState !== 'active' || !current.current) return;
       if (Date.now() - lastSyncAt.current >= 30_000) void resync().catch(() => {});
+      void flushOutbox();
     };
     const t = setInterval(tick, 10_000);
     const sub = RNAppState.addEventListener('change', s => { if (s === 'active') tick(); });
     return () => { clearInterval(t); sub.remove(); };
-  }, [resync]);
+  }, [resync, flushOutbox]);
   const refreshWorkspace = async (ids: string[]) => { if (!current.current) throw new Error('Connect Harness to refresh this workspace.'); await clearWorkspaceHistory(current.current.connection.url, ids); await refresh(); };
   useEffect(() => { let active = true; void credentials.read().then(async value => {
     if (!active || !value) return; const c = JSON.parse(value); setSavedUrl(c.url);
@@ -143,6 +156,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (network && deviceIsOffline(network)) { offlineRef.current = true; setDeviceOffline(true); setStatus('offline'); }
     else if (active) await connect(c);
   }).catch(() => setStatus('offline')).finally(() => { if (active) setLoading(false); }); return () => { active = false; current.current?.disconnect(); }; }, [connect]);
-  return <Context.Provider value={{ onSessionStatus, lastSync, resync, applyProjections, client, sessions, workspaces, archived, pinned, status: deviceOffline ? 'offline' : status, deviceOffline, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ onSessionStatus, lastSync, resync, flushOutbox, applyProjections, client, sessions, workspaces, archived, pinned, status: deviceOffline ? 'offline' : status, deviceOffline, savedUrl, loading, pending, theme, colors: (theme === 'system' ? system === 'dark' : theme === 'dark') ? dark : light, connect, disconnect, refresh, refreshWorkspace, setTheme, dismiss: id => setPending(p => p.filter(x => x.eventId !== id)) }}>{children}</Context.Provider>;
 }
 export function useApp() { const value = useContext(Context); if (!value) throw new Error('AppProvider missing'); return value; }
