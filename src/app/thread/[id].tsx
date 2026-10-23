@@ -19,7 +19,7 @@ import { useApp } from '../../state/app';
 import { Empty, ErrorNotice, Header, IconButton, ScrollEdge, Screen, T } from '../../components/ui';
 import { ChatRow } from '../../components/ChatRows';
 import { ChatComposer } from '../../components/ChatComposer';
-import { MessageMarkdown } from '../../components/MessageMarkdown';
+import { MessageLinkContext, MessageMarkdown } from '../../components/MessageMarkdown';
 import { PendingRequest } from '../../components/PendingRequest';
 import { PlanReview, planReviewOf } from '../../components/PlanReview';
 import { PromptIndex } from '../../components/PromptIndex';
@@ -36,6 +36,8 @@ import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent, type Transc
 import { replyText, turnText } from '../../lib/copyText';
 import { enqueue, listOutbox, onOutboxChange, removeOutbox, updateOutbox, type OutboxItem } from '../../lib/outbox';
 import { SelectTextSheet } from '../../components/SelectTextSheet';
+import { parentOf, resolveFileLink } from '../../lib/fileLinks';
+import { listDirectory } from '../../lib/workspaceFiles';
 import { expandStream, streamText } from '../../lib/stream';
 import { liteEvent, sameRecords } from '../../lib/lite';
 import { coverage, eventsBetween, putEvents } from '../../lib/eventStore';
@@ -213,6 +215,28 @@ export default function Thread() {
       { label: 'Copy Text', icon: 'copy-outline', onPress: () => { void Clipboard.setStringAsync(row.text); } },
     ] });
   }, [menu, dialog, client, id, session, running, refresh, harnessUrl, records]);
+  // Tapping a workspace file/folder link in a reply opens it in Files: folders open directly; files open
+  // their folder with the file highlighted, then the file itself.
+  const openFileLink = useCallback((href: string) => {
+    const target = resolveFileLink(href, session?.cwd);
+    if (!target) { void dialog.alert('Can’t Open Link', `“${href}” isn’t a web address or a file inside this session’s workspace.`); return true; }
+    void (async () => {
+      const { dir, name } = parentOf(target.path);
+      let isDir = false;
+      if (client && target.path) {
+        try {
+          const listing = await listDirectory(client, id, dir);
+          const entry = listing.entries.find(e => e.name === name);
+          if (!entry) { await dialog.alert('File Not Found', `${target.path} isn’t in this workspace any more.`); return; }
+          isDir = entry.type === 'directory';
+        } catch { /* offline or not listable: fall back to opening the folder */ }
+      } else isDir = !target.path;
+      if (isDir) { router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd, dir: target.path } }); return; }
+      router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd, dir, focus: name } });
+      if (client) router.push({ pathname: '/file', params: { sessionId: id, path: target.path } });
+    })();
+    return true;
+  }, [client, id, session?.cwd, dialog]);
   // Long-press on an AI reply: copy just the answer, or the whole turn (thinking + every tool call with
   // input/output), or open the text in a selectable view to copy only part of it.
   const [selectText, setSelectText] = useState<string | null>(null);
@@ -428,7 +452,7 @@ export default function Thread() {
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
         {historyState === 'loading' && !rows.length ? <View style={{ flex: 1, paddingHorizontal: 14, paddingTop: 62 }}><SkeletonChat /></View>
         : !rows.length && !working && !outbox.length ? <View style={{ flex: 1, justifyContent: 'center', paddingTop: 62 }}><Empty icon="sparkles-outline" title="New Session" detail="Describe a task or ask a question. Your Harness does the rest." /></View>
-        : <Animated.View style={{ flex: 1, opacity: fade }}><ChatScrollContext.Provider value={chatScroll}><StepDetailContext.Provider value={steps}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
+        : <Animated.View style={{ flex: 1, opacity: fade }}><ChatScrollContext.Provider value={chatScroll}><StepDetailContext.Provider value={steps}><MessageLinkContext.Provider value={openFileLink}><GestureDetector gesture={pinch.list}><FlatList ref={list} inverted data={data} keyExtractor={x => x.id}
           // Inverted: the footer renders at the visual bottom (live text, pending requests), the header at the top.
           maintainVisibleContentPosition={anchorHolds ? undefined : MVCP}
           initialNumToRender={14} maxToRenderPerBatch={12} windowSize={11} removeClippedSubviews={Platform.OS === 'android'}
@@ -440,7 +464,7 @@ export default function Thread() {
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: hasMore ? 0 : 62 }}
           ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{[...outbox].reverse().map(o => <Pressable key={o.id} accessibilityRole="button" accessibilityLabel={o.error ? `Couldn’t send: ${o.text}` : `Waiting to send: ${o.text}`} accessibilityHint="Tap for options" onPress={() => outboxMenu(o)} style={({ pressed }) => ({ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, borderWidth: 1, borderStyle: 'dashed', borderColor: o.error ? colors.danger : colors.border, opacity: pressed ? 0.6 : 0.85 })}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 }}><Ionicons name={o.error ? 'alert-circle-outline' : connected ? 'arrow-up-circle-outline' : 'time-outline'} size={12} color={o.error ? colors.danger : colors.muted} /><T style="caption2" color={o.error ? 'danger' : 'secondary'}>{o.error ? 'Couldn’t send · tap for options' : connected ? 'Sending…' : 'Waiting for connection'}</T></View><T style="footnote" numberOfLines={6}>{o.text}</T></Pressable>)}{pendingSends.map(s => <View key={s.key} style={{ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, opacity: 0.75 }}><T style="caption2" color="secondary">You · Sending…</T><T style="footnote" numberOfLines={6}>{s.text}</T></View>)}{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={`${p.clientId}:${p.eventId}`} frame={p} /> : <PendingRequest key={`${p.clientId}:${p.eventId}`} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
           ListFooterComponent={hasMore ? <View style={{ alignItems: 'center', paddingTop: 66, paddingBottom: 8 }}>{olderBusy ? <View accessibilityLabel="Loading earlier messages" style={{ height: 34, justifyContent: 'center' }}><Dots size="sm" /></View> : <Pressable accessibilityRole="button" accessibilityLabel="Load earlier messages" onPress={() => void older()} hitSlop={8} style={({ pressed }) => ({ height: 34, paddingHorizontal: 14, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: pressed ? colors.state : colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border })}><Ionicons name="arrow-up" size={13} color={colors.muted} /><T style="caption1" color="secondary">Load earlier messages</T></Pressable>}</View> : null}
-          renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} onReplyAction={replyMenu} /></View>; }} /></GestureDetector></StepDetailContext.Provider></ChatScrollContext.Provider></Animated.View>}
+          renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} onReplyAction={replyMenu} /></View>; }} /></GestureDetector></MessageLinkContext.Provider></StepDetailContext.Provider></ChatScrollContext.Provider></Animated.View>}
         </View></GestureDetector>
         <ScrollEdge height={56} />
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}

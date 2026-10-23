@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SkeletonRows } from '../components/Loader';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,9 +26,11 @@ function iconFor(e: FileEntry): IconName {
 
 /** Workspace file browser over the official read-only workspaceFiles API, with download to device. */
 export default function Files() {
-  const { sessionId, root } = useLocalSearchParams<{ sessionId: string; root?: string }>();
+  // `dir` opens a sub-folder (relative to the workspace) and `focus` highlights an entry in it — used when
+  // a file/folder link in an agent reply is tapped.
+  const { sessionId, root, dir, focus } = useLocalSearchParams<{ sessionId: string; root?: string; dir?: string; focus?: string }>();
   const { client, colors } = useApp();
-  const [path, setPath] = useState(''); const [entries, setEntries] = useState<CachedFileEntry[] | null>(null); const [truncated, setTruncated] = useState(false);
+  const [path, setPath] = useState(dir ?? ''); const [entries, setEntries] = useState<CachedFileEntry[] | null>(null); const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState(''); const [query, setQuery] = useState(''); const [showHidden, setShowHidden] = useState(false);
   const menu = useActionMenu();
   const [sortKey, setSortKey] = useState<SortKey>('updated'); const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -75,6 +77,9 @@ export default function Files() {
   const go = (p: string) => { setEntries(null); setError(''); setPath(p); };
 
   const crumbs = path ? path.split('/').filter(Boolean) : [];
+  const list = useRef<FlatList>(null);
+  const [highlight, setHighlight] = useState(focus ?? '');
+  useEffect(() => { if (!highlight) return; const t = setTimeout(() => setHighlight(''), 2500); return () => clearTimeout(t); }, [highlight]);
   const shown = sortEntries((entries ?? []).filter(e => (showHidden || !e.name.startsWith('.')) && e.name.toLowerCase().includes(query.toLowerCase())), sortKey, sortDir);
   // Folders stay on top in name order: the Harness can stat files only, so folders have no time or size.
   const sortLabel = `${sortKey === 'updated' ? 'Last updated' : sortKey === 'name' ? 'Name' : 'Size'} · ${sortKey === 'name' ? (sortDir === 'asc' ? 'A–Z' : 'Z–A') : sortKey === 'updated' ? (sortDir === 'desc' ? 'newest first' : 'oldest first') : (sortDir === 'desc' ? 'largest first' : 'smallest first')}`;
@@ -100,12 +105,14 @@ export default function Files() {
     </View>
     <ErrorNotice message={error} />
     {entries === null ? <SkeletonRows rows={9} indent={false} /> : <FlatList
-      data={shown} keyExtractor={e => e.name}
+      ref={list} data={shown} keyExtractor={e => e.name}
+      onContentSizeChange={() => { if (!highlight || path !== (dir ?? '')) return; const i = shown.findIndex(e => e.name === highlight); if (i > 2) list.current?.scrollToIndex({ index: i, viewPosition: 0.3, animated: true }); }}
+      onScrollToIndexFailed={() => {}}
       contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 32 }}
       ListHeaderComponent={path ? <Pressable accessibilityRole="button" accessibilityLabel="Up one folder" onPress={() => go(crumbs.slice(0, -1).join('/'))} style={({ pressed }) => [s.row, { opacity: pressed ? 0.5 : 1 }]}><Ionicons name="arrow-up" size={17} color={colors.muted} /><T style="footnote" color="secondary">..</T></Pressable> : null}
       ListEmptyComponent={!error ? <Empty icon="folder-open-outline" title={query ? 'No Matches' : 'Empty Folder'} detail={query ? 'Nothing here matches your filter.' : showHidden ? 'This folder has no files.' : 'No visible files. Tap the eye to show hidden files.'} /> : null}
       ListFooterComponent={truncated ? <T style="caption1" color="secondary" align="center">Folder has more entries than the Harness lists at once.</T> : null}
-      renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={`${item.type === 'directory' ? 'Folder' : 'File'} ${item.name}`} onPress={() => item.type === 'directory' ? go(join(item.name)) : router.push({ pathname: '/file', params: { sessionId, path: join(item.name), size: String(item.size ?? '') } })} style={({ pressed }) => [s.row, { backgroundColor: pressed ? colors.fill : 'transparent' }]}>
+      renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={`${item.type === 'directory' ? 'Folder' : 'File'} ${item.name}`} onPress={() => item.type === 'directory' ? go(join(item.name)) : router.push({ pathname: '/file', params: { sessionId, path: join(item.name), size: String(item.size ?? '') } })} style={({ pressed }) => [s.row, { backgroundColor: pressed || (highlight === item.name && path === (dir ?? '')) ? colors.fill : 'transparent' }]}>
         <Ionicons name={iconFor(item)} size={18} color={item.type === 'directory' ? colors.primary : colors.muted} />
         <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1, fontSize: 14 }}>{item.name}</T>
         <View style={{ alignItems: 'flex-end' }}>{item.type === 'file' ? <T style="caption2" color="secondary">{formatSize(item.size)}</T> : null}{item.mtime ? <T style="caption2" color="tertiary">{relativeTime(item.mtime)}</T> : null}</View>

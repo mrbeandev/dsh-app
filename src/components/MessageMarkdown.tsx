@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { createContext, memo, useContext, useState } from 'react';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Markdown, { MarkdownIt, type RenderRules } from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,11 @@ parser.linkify.set({ fuzzyLink: false, fuzzyEmail: false, fuzzyIP: false });
 for (const scheme of ['ftp:', 'mailto:', '//']) parser.linkify.add(scheme, null);
 export function safeMessageLink(url: string) { return /^https?:\/\//i.test(url) || /^mailto:/i.test(url); }
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+/**
+ * Non-web links in a reply (workspace files like `docs/BACKLOG.md` or `/abs/path/app.tsx#L42`). The chat
+ * screen provides a handler that opens them in Files; return true if the link was handled.
+ */
+export const MessageLinkContext = createContext<((href: string) => boolean) | null>(null);
 
 /** Fenced code block: header with language + copy action, horizontally scrollable monospace body. */
 function CodeBlock({ code, lang, colors }: { code: string; lang?: string; colors: Colors }) {
@@ -31,7 +36,7 @@ function CodeBlock({ code, lang, colors }: { code: string; lang?: string; colors
 }
 
 export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: string }) {
-  const { colors } = useApp();
+  const { colors } = useApp(); const openLocal = useContext(MessageLinkContext);
   const rules: RenderRules = {
     image: node => <Text key={node.key} style={{ color: colors.muted }}>Image: {node.attributes.alt || 'attachment'} (not downloaded)</Text>,
     fence: node => <CodeBlock key={node.key} code={node.content.replace(/\n$/, '')} lang={(node as any).sourceInfo?.trim().split(/\s+/)[0]} colors={colors} />,
@@ -42,7 +47,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: s
     blockquote: (node, children) => <View key={node.key} style={{ flexDirection: 'row', marginVertical: 6, borderRadius: 10, overflow: 'hidden', backgroundColor: colors.fill }}><View style={{ width: 3, backgroundColor: colors.primary }} /><View style={{ flex: 1, paddingHorizontal: 10, paddingTop: 7, paddingBottom: 1 }}>{children}</View></View>,
     text: (node, _children, _parents, _styles, inherited) => <Text key={node.key} selectable style={[inherited, { color: inherited?.color ?? colors.text }]}>{node.content}</Text>,
   };
-  return <Markdown markdownit={parser} rules={rules} onLinkPress={url => { if (safeMessageLink(url)) void Linking.openURL(url).catch(() => {}); return false; }} style={{
+  return <Markdown markdownit={parser} rules={rules} onLinkPress={url => { if (safeMessageLink(url)) void Linking.openURL(url).catch(() => {}); else openLocal?.(url); return false; }} style={{
     body: { color: colors.text, fontSize: 12.5, lineHeight: 18 },
     paragraph: { marginTop: 0, marginBottom: 6 },
     heading1: { fontSize: 15.5, lineHeight: 21, fontWeight: '700', marginTop: 6, marginBottom: 4 },
