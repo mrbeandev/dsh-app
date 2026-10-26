@@ -31,7 +31,7 @@ const titleCase = (v: string) => v.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c
 type Option = { value: string; isDefault: boolean; name?: string; description?: string; broken?: string };
 
 export default function NewTask() {
-  const { client, refresh } = useApp();
+  const { client, refresh, workspaces } = useApp();
   const dialog = useDialog();
   const params = useLocalSearchParams<{ cwd?: string }>();
   const [cwd, setCwd] = useState(params.cwd ?? ''); const [picker, setPicker] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
@@ -63,7 +63,20 @@ export default function NewTask() {
   const create = async () => {
     if (!client || busy) return; setBusy(true); setError('');
     try {
-      const args: Record<string, string> = {}; if (cwd.trim()) args.cwd = cwd.trim();
+      // A session is only listed under a workspace (in the Web UI too) once the Harness *attaches* it to
+      // that workspace. session/create does that only when given `workspaceId`; with a plain `cwd` the
+      // session lands in "Ungrouped". So: use the registered workspace for this folder, registering the
+      // folder as a workspace first if needed (workspace/create is idempotent), exactly like the Web UI.
+      const args: Record<string, string> = {};
+      const folder = cwd.trim().replace(/\/+$/, '');
+      if (folder) {
+        let workspaceId = workspaces.find(w => String(w.path).replace(/\/+$/, '') === folder)?.workspaceId as string | undefined;
+        if (!workspaceId) {
+          try { workspaceId = (await client.call<{ workspace: { workspaceId: string } }>('workspace/create', { request: { path: folder } })).workspace.workspaceId; }
+          catch { /* older Harness or not registrable: fall back to a plain cwd below */ }
+        }
+        if (workspaceId) args.workspaceId = workspaceId; else args.cwd = folder;
+      }
       const defaultPersona = personas?.find(x => x.isDefault)?.value;
       if (persona && persona !== defaultPersona) args.agentPreset = persona;
       const result = await client.request('session/create', args);

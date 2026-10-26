@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useModelName } from '../../lib/modelNames';
+import { useModelLabel } from '../../lib/modelNames';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
@@ -59,7 +59,8 @@ export default function Details() {
   const selection = values.modelSelection;
   const model: string = (selection?.next ?? selection?.lastUsed)?.model ?? '';
   const provider: string = (selection?.next ?? selection?.lastUsed)?.provider ?? '';
-  const modelLabel = useModelName(client, model, provider);
+  const effort: string | undefined = (selection?.next ?? selection?.lastUsed)?.reasoningEffort;
+  const { name: modelLabel, level } = useModelLabel(client, model, provider, effort);
   const tokens = useMemo(() => tokenUsage(values.tokenUsage), [values.tokenUsage]);
   const ctx = useMemo(() => contextUsage(values.contextPressure, values.contextBreakdown), [values.contextPressure, values.contextBreakdown]);
   const stats = useMemo(() => sessionStats(values.sessionStats), [values.sessionStats]);
@@ -74,7 +75,7 @@ export default function Details() {
     <View style={{ gap: 10 }}><Field label="Title" value={title} onChangeText={setTitle} returnKeyType="done" onSubmitEditing={save} /><Button title="Save Title" secondary loading={busy} disabled={!client || !title.trim()} onPress={save} /></View>
 
     <Section header="Session">
-      <Row icon="sparkles-outline" title="Model" value={modelLabel || 'Default'} subtitle={provider || undefined} onPress={client ? () => setPicker(true) : undefined} />
+      <Row icon="sparkles-outline" title="Model" value={modelLabel || 'Default'} subtitle={[provider, level ? `Reasoning: ${level}` : ''].filter(Boolean).join(' · ') || undefined} onPress={client ? () => setPicker(true) : undefined} />
       {model ? <Row icon="pricetag-outline" title="Model ID" subtitle={provider ? `${provider} / ${model}` : model} chevron={false} copy={provider ? `${provider}/${model}` : model} /> : null}
       {values.agentPreset ? <Row icon="person-circle-outline" title="Persona" value={titleCase(String(values.agentPreset))} chevron={false} /> : null}
       {values.permissions?.currentValue ? <Row icon="shield-checkmark-outline" title="Access" value={titleCase(String(values.permissions.currentValue))} chevron={false} /> : null}
@@ -140,7 +141,7 @@ export default function Details() {
       {client ? <Row icon="link-outline" title="Harness" subtitle={client.connection.url} chevron={false} copy={client.connection.url} /> : null}
     </Section>
     <ErrorNotice message={error} />
-  </ScrollView><ModelPicker sessionId={id} visible={picker} onClose={() => setPicker(false)} onSelected={() => {}} current={{ provider, model }} /></Screen>;
+  </ScrollView><ModelPicker sessionId={id} visible={picker} onClose={() => setPicker(false)} onSelected={() => {}} current={{ provider, model, reasoningEffort: effort }} /></Screen>;
 }
 
 function StatLine({ label, value, strong, swatch, icon }: { label: string; value: string; strong?: boolean; swatch?: string; icon?: IconName }) {

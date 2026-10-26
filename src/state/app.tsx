@@ -77,8 +77,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleRefresh = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { if (current.current === next) void refresh().catch(() => {}); }, 250); };
     next.follow('$events', {}, frame => {
-      if (frame.type === 'ready') { next.clientId = frame.clientId; setPending([]); setStatus('connected'); scheduleRefresh(); void flushOutbox(); }
-      if (frame.type === 'waterfall') setPending(p => [...p.filter(x => x.eventId !== frame.eventId), { ...frame, clientId: next.clientId }]);
+      if (frame.type === 'ready') {
+        next.clientId = frame.clientId; setStatus('connected'); scheduleRefresh(); void flushOutbox();
+        // Open requests are replayed on the new connection with the same eventId and a new clientId.
+        // Keep their cards (and the user's choices) meanwhile; prune only those not replayed within 5 s.
+        const readyAt = Date.now(); setTimeout(() => { if (current.current === next) setPending(p => p.filter(x => x.clientId === next.clientId || (x as any).seenAt >= readyAt)); }, 5000);
+      }
+      if (frame.type === 'waterfall') setPending(p => { const i = p.findIndex(x => x.eventId === frame.eventId); const fresh = { ...frame, clientId: next.clientId, seenAt: Date.now() }; if (i < 0) return [...p, fresh]; const copy = [...p]; copy[i] = fresh; return copy; });
       if (frame.type === 'cancel') setPending(p => p.filter(x => x.eventId !== frame.eventId));
       if (frame.type === 'emit' && frame.event === 'api-session/status') {
         const [id, running] = frame.args; for (const fn of statusListeners.current) { try { fn(String(id), !!running); } catch { /* listener errors never break the stream */ } }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../state/app';
@@ -21,17 +21,26 @@ export function planReviewOf(frame: Frame): { id: string; plan: string; approve:
  * written in the multi-line editor.
  */
 export function PlanReview({ frame }: { frame: Frame }) {
-  const { client, dismiss, colors } = useApp(); const dialog = useDialog(); const { height } = useWindowDimensions();
+  const { client, dismiss, colors, status } = useApp(); const dialog = useDialog(); const { height } = useWindowDimensions();
   const review = planReviewOf(frame)!;
   const [busy, setBusy] = useState<'' | 'approve' | 'keep'>(''); const [error, setError] = useState(''); const [expanded, setExpanded] = useState(false);
   const title = /^#\s+(.+)$/m.exec(review.plan)?.[1]?.trim() ?? 'Plan';
   // The header already shows the plan's first heading; don't repeat it in the body.
   const body = review.plan.replace(/^\s*#\s+.+\n?/, '').trimStart();
+  // Last decision: re-sent automatically if the request is replayed on a new connection (see PendingRequest).
+  const intended = useRef<{ kind: 'approve' | 'keep'; feedback?: string } | undefined>(undefined);
   const send = async (kind: 'approve' | 'keep', feedback?: string) => {
-    if (!client) return; setBusy(kind); setError('');
+    if (!client) return; intended.current = { kind, feedback }; setBusy(kind); setError('');
     const answer = kind === 'approve' ? { id: review.id, selected: [review.approve] } : { id: review.id, selected: ['Keep planning'], ...(feedback ? { custom: feedback } : {}) };
-    try { await client.answer(frame.eventId, { answers: [answer] }, frame.clientId); dismiss(frame.eventId); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
+    try { await client.answer(frame.eventId, { answers: [answer] }, frame.clientId); intended.current = undefined; dismiss(frame.eventId); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
   };
+  const sentFor = useRef('');
+  useEffect(() => {
+    const again = intended.current;
+    if (!again || status !== 'connected' || !frame.clientId || sentFor.current === frame.clientId) return;
+    sentFor.current = frame.clientId; void send(again.kind, again.feedback);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame.clientId, status]);
   const keep = async () => {
     const feedback = await dialog.prompt({ title: 'Keep Planning', message: 'Tell the agent what to change. Leave it as is to just ask for a revision.', placeholder: 'What should change in the plan?', confirm: 'Send Feedback', multiline: true, optional: true });
     if (feedback !== null) await send('keep', feedback);

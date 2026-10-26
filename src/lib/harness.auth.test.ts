@@ -40,3 +40,24 @@ describe('native token exchange', () => {
     await expect(new HarnessClient({ url: 'https://h.example', token: 'bad' }).authenticate()).rejects.toMatchObject({ code: 'authentication' });
   });
 });
+
+describe('answering questions', () => {
+  it('gives up after 15 s instead of spinning forever when the Harness never confirms', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockReturnValueOnce(new Promise(() => {})); // request lost on a flipping tunnel
+    const client = new HarnessClient({ url: 'https://h.example', token: 't' });
+    client.clientId = 'c1';
+    const p = client.answer('e1', { answers: [] }, 'c1').catch(e => e);
+    await vi.advanceTimersByTimeAsync(15_001);
+    const err = await p;
+    expect(err.code).toBe('transport');
+    expect(String(err.message)).toMatch(/sent again/);
+    vi.useRealTimers();
+  });
+  it('refuses to answer on a stale connection with a clear message', async () => {
+    const client = new HarnessClient({ url: 'https://h.example', token: 't' });
+    client.clientId = 'new';
+    await expect(client.answer('e1', {}, 'old')).rejects.toMatchObject({ code: 'stale' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

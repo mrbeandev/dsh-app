@@ -155,9 +155,20 @@ export class HarnessClient {
       if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'cancel', streamId }));
     };
   }
+  /**
+   * Answer a question/approval. Bounded: on a flaky tunnel the reply can be lost when the connection
+   * flips mid-request, so give up after 15 s instead of leaving the card spinning; the card re-sends
+   * once the Harness replays the request on the new connection.
+   */
   async answer(eventId: string, value: unknown, clientId: string) {
-    if (!clientId || clientId !== this.clientId) throw new HarnessError('stale', 'Connection changed. Wait for the request to be replayed before answering.');
-    return this.call('$events/result', { clientId, eventId, outcome: { kind: 'result', value } });
+    if (!clientId || clientId !== this.clientId) throw new HarnessError('stale', 'Reconnecting — your answer will be sent as soon as the connection is back.');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.call('$events/result', { clientId, eventId, outcome: { kind: 'result', value } }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new HarnessError('transport', 'The Harness didn’t confirm your answer. It will be sent again when the connection recovers.')), 15_000); }),
+      ]);
+    } finally { clearTimeout(timer); }
   }
   disconnect() {
     this.closed = true; clearTimeout(this.retry); this.streams.clear(); this.socket?.close(); this.socket = null; this.clientId = ''; this.onStatus('disconnected');
