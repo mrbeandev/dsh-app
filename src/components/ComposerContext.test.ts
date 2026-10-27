@@ -41,3 +41,23 @@ describe('runQueuedNow (send a queued message while the agent is idle)', () => {
     expect(calls).toEqual(['session/updateQueue']);
   });
 });
+
+describe('take a steering message back', () => {
+  it('removes the steering item and re-queues the same content (delivered after the turn)', async () => {
+    const { unsteerToQueue } = await import('./ComposerContext');
+    const calls: [string, any][] = [];
+    const client = { request: async (m: string, p: any) => { calls.push([m, p]); return {}; } };
+    const content = [{ type: 'text', text: 'use the staging DB instead' }];
+    await unsteerToQueue(client, 's1', { id: 'm7', content });
+    expect(calls[0]).toEqual(['session/updateQueue', { sessionId: 's1', itemId: 'm7', action: { kind: 'remove' } }]);
+    expect(calls[1][0]).toBe('session/prompt');
+    expect(calls[1][1]).toMatchObject({ sessionId: 's1', mode: 'queue', content });
+  });
+  it('changes nothing when the agent already took it (remove fails)', async () => {
+    const { unsteerToQueue } = await import('./ComposerContext');
+    const calls: string[] = [];
+    const client = { request: async (m: string) => { calls.push(m); if (m === 'session/updateQueue') throw Object.assign(new Error('queued item is no longer pending'), { code: 'session/queue-item-not-found' }); return {}; } };
+    await expect(unsteerToQueue(client, 's1', { id: 'm7', content: [] })).rejects.toThrow(/no longer pending/);
+    expect(calls).toEqual(['session/updateQueue']);
+  });
+});

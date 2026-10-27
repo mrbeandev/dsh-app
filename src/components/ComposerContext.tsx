@@ -30,7 +30,7 @@ type GoalProjection = { goal?: { id: string; revision: number; objective: string
  * Each card is one slim row above the composer; Todo expands into a checklist (accordion).
  * Driven by `session/projections`; goal actions use the official goals/* RPCs (CAS by revision).
  */
-export function ComposerContext({ sessionId, values, running = true }: { sessionId: string; values: Record<string, any>; running?: boolean }) {
+export function ComposerContext({ sessionId, values, running = true, onRestore }: { sessionId: string; values: Record<string, any>; running?: boolean; onRestore?: (text: string) => void }) {
   const todos: Todo[] = Array.isArray(values.todos?.items) ? values.todos.items : Array.isArray(values.todos) ? values.todos : [];
   const goal = (values.goal as GoalProjection)?.goal;
   // Harness inbox: next-turn = queued (waits for the turn to end); next-step = steering (delivered at
@@ -46,7 +46,7 @@ export function ComposerContext({ sessionId, values, running = true }: { session
   return <View style={{ gap: 4, paddingHorizontal: 10, paddingBottom: 4 }}>
     {showTodos ? <TodoCard todos={todos} /> : null}
     {showGoal ? <GoalCard sessionId={sessionId} goal={goal!} rounds={(values.goal as GoalProjection)?.roundsStarted ?? 0} /> : null}
-    {queue.length ? <QueueDock sessionId={sessionId} queued={queued} steering={steering} running={running} /> : null}
+    {queue.length ? <QueueDock sessionId={sessionId} queued={queued} steering={steering} running={running} onRestore={onRestore} /> : null}
     {plan?.active ? <Card icon="map-outline" label="Plan mode" text={plan.pending ? 'A plan is waiting for your review' : 'The agent will propose a plan before acting'} /> : null}
     {questions ? <Card icon="help-circle-outline" label="Question" text={`The agent is waiting for ${questions === 1 ? 'your answer' : `${questions} answers`}`} tint="warning" /> : null}
   </View>;
@@ -64,11 +64,21 @@ export async function runQueuedNow(client: { request: (m: string, p: any) => Pro
 }
 
 /**
+ * Take a steering message back. The Harness has no "unsteer": a pending item (queued or steering) can be
+ * removed, so it's removed and its exact content re-submitted as an ordinary queued prompt. Removal
+ * fails with `session/queue-item-not-found` once the agent has already consumed it — then nothing changes.
+ */
+export async function unsteerToQueue(client: { request: (m: string, p: any) => Promise<any> }, sessionId: string, item: { id: string; content: any[] }) {
+  await client.request('session/updateQueue', { sessionId, itemId: item.id, action: { kind: 'remove' } });
+  await client.request('session/prompt', { requestId: randomUUID(), sessionId, mode: 'queue', content: item.content, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+}
+
+/**
  * Web UI QueueDock parity: lists messages waiting in the Harness inbox. Queued ones can be
  * steered (deliver at the agent's next step instead of after the turn), edited, or removed —
  * all through the official `session/updateQueue` RPC, so the web UI sees the same queue.
  */
-function QueueDock({ sessionId, queued, steering, running }: { sessionId: string; queued: QueueItem[]; steering: QueueItem[]; running: boolean }) {
+function QueueDock({ sessionId, queued, steering, running, onRestore }: { sessionId: string; queued: QueueItem[]; steering: QueueItem[]; running: boolean; onRestore?: (text: string) => void }) {
   const { client, colors } = useApp(); const dialog = useDialog();
   const [open, setOpen] = useState(true); const [busy, setBusy] = useState(''); const [error, setError] = useState('');
   const act = async (itemId: string, action: Record<string, unknown>) => {
@@ -78,6 +88,17 @@ function QueueDock({ sessionId, queued, steering, running }: { sessionId: string
   const sendNow = async (q: QueueItem) => {
     if (!client || busy) return; setBusy(q.id); setError('');
     try { await runQueuedNow(client, sessionId, q); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
+  };
+  const gone = (e: unknown) => /no longer pending|queue-item-not-found/i.test(String((e as any)?.code ?? '') + ' ' + String((e as Error)?.message ?? ''));
+  const toQueue = async (q: QueueItem) => {
+    if (!client || busy) return; setBusy(q.id); setError('');
+    try { await unsteerToQueue(client, sessionId, q); }
+    catch (e) { setError(gone(e) ? 'Too late — the agent already received this message.' : errorMessage(e)); } finally { setBusy(''); }
+  };
+  const toInput = async (q: QueueItem) => {
+    if (!client || busy || !onRestore) return; setBusy(q.id); setError('');
+    try { await client.request('session/updateQueue', { sessionId, itemId: q.id, action: { kind: 'remove' } }); onRestore(q.text); }
+    catch (e) { setError(gone(e) ? 'Too late — the agent already received this message.' : errorMessage(e)); } finally { setBusy(''); }
   };
   const edit = async (q: QueueItem) => {
     const text = await dialog.prompt({ title: 'Edit Queued Message', initial: q.text, placeholder: 'Message', confirm: 'Save', multiline: true });
@@ -100,7 +121,12 @@ function QueueDock({ sessionId, queued, steering, running }: { sessionId: string
       {[...steering.map(q => ({ q, steer: true })), ...queued.map(q => ({ q, steer: false }))].map(({ q, steer }) => <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingLeft: 12, paddingRight: 4, minHeight: 38, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, opacity: busy === q.id ? 0.45 : 1 }}>
         {steer ? <Ionicons name="arrow-up" size={13} color={colors.primary} style={{ marginRight: 4 }} /> : null}
         <View style={{ flex: 1 }}><T style="caption1" numberOfLines={1} color={steer ? colors.primary : undefined} styleOverride={{ fontSize: 13 }}>{q.text}</T></View>
-        {steer ? <T style="caption2" color={colors.primary} styleOverride={{ marginRight: 8 }}>Steering</T> : <>
+        {steer ? <>
+          <T style="caption2" color={colors.primary} styleOverride={{ marginRight: 4 }}>Steering</T>
+          {/* Still pending: take it back before the agent's next step picks it up. */}
+          {onRestore && q.editable ? <QueueAction icon="create-outline" label="Back to message box" hint="Stop steering and put this text back in the message box to edit" onPress={() => void toInput(q)} disabled={!!busy} /> : null}
+          <QueueAction icon="arrow-down" label="Back to queue" hint="Stop steering: deliver after this turn instead" onPress={() => void toQueue(q)} disabled={!!busy} />
+        </> : <>
           {q.editable ? <QueueAction icon="create-outline" label="Edit" onPress={() => void edit(q)} disabled={!!busy} /> : null}
           <QueueAction icon="trash-outline" label="Delete" onPress={() => void remove(q)} disabled={!!busy} />
           {running ? <QueueAction icon="arrow-up" label="Steer now" hint="Deliver this message to the agent at its next step instead of after this turn" onPress={() => void act(q.id, { kind: 'steer' })} disabled={!!busy} />

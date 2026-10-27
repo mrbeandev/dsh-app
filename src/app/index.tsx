@@ -121,6 +121,7 @@ export default function Home() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             {(['All', 'Working'] as const).map(x => { const on = filter === x; return <Pressable key={x} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setFilter(x)} hitSlop={slop(30)} style={({ pressed }) => ({ height: 30, paddingHorizontal: 12, borderRadius: 8, boxShadow: on ? `inset 0 1px 0 ${colors.rim}` : undefined, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: on ? colors.fill : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? colors.glassEdge : 'transparent', opacity: pressed ? 0.6 : 1 })}><T style="footnote" weight="500">{x}</T>{x === 'Working' && workingCount ? <T style="caption1" color="secondary">{workingCount}</T> : null}</Pressable>; })}
             <View style={{ flex: 1 }} />
+            <IconButton icon="information-circle-outline" size={18} tint={colors.muted} label="What the session markers mean" onPress={() => void dialog.alert('Session markers', '●  Green dot with a halo — the agent is working now.\n●  Amber dot — the agent is waiting for your answer.\n○  Green ring — finished while you were away; you haven’t opened it yet.\n\n⑂ N on the right — how many subagents the session has. It turns green while any of them is working.')} />
           </View>
         </View></>}
         renderSectionHeader={({ section }) => { const open = isOpen(section.id); const runningHere = section.sessions.some(x => live && x.running); return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 4, marginHorizontal: 12, marginTop: 7, marginBottom: open ? 3 : 0, borderRadius: 11, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, boxShadow: `inset 0 1px 0 ${colors.rim}` }}>
@@ -144,7 +145,7 @@ export default function Home() {
             <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 16, width: 15, height: 1, backgroundColor: colors.border }} />
             <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: pressed ? colors.state : colors.panel })}>
               <Ionicons name="chatbubble-outline" size={13} color={colors.tertiary} />
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: attention ? colors.warning : active ? colors.live : finished ? (colors.success) : 'transparent' }} />
+              <StatusMark kind={attention ? 'input' : active ? 'working' : finished ? 'unseen' : 'none'} />
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>
               {pinned.includes(item.sessionId) ? <Ionicons name="pin" size={11} color={colors.muted} /> : null}
               <SubagentToggle nodes={tree} open={!!subOpen[item.sessionId]} onToggle={() => setSubOpen(o => ({ ...o, [item.sessionId]: !o[item.sessionId] }))} />
@@ -179,6 +180,21 @@ export default function Home() {
       </GlassTargetProvider>
     </View> : null}
   </Screen>;
+}
+
+/**
+ * Session status at the start of each row. Shapes differ so they can be told apart without colour:
+ * working = solid green dot with a halo, needs input = solid amber dot, finished but not opened yet =
+ * hollow green ring. (The green "⑂ N" badge on the right is the subagent count, green while any work.)
+ */
+function StatusMark({ kind }: { kind: 'working' | 'input' | 'unseen' | 'none' }) {
+  const { colors } = useApp();
+  if (kind === 'none') return <View style={{ width: 10 }} />;
+  const color = kind === 'input' ? colors.warning : colors.live;
+  return <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: 10, height: 10, alignItems: 'center', justifyContent: 'center' }}>
+    {kind === 'working' ? <View style={{ position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: color, opacity: 0.25 }} /> : null}
+    <View style={kind === 'unseen' ? { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: color } : { width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+  </View>;
 }
 
 /** Independent workspace actions: bordered compact buttons, with 44pt-wide touch targets. */

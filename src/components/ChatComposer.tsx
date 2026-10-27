@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../state/app';
 import { ModelPicker } from './ModelPicker';
@@ -8,6 +8,7 @@ import { T, type } from './ui';
 import { ImportPicker } from './ImportPicker';
 import type { ImportCategory, ImportItem } from '../lib/imports';
 import { useModelLabel } from '../lib/modelNames';
+import { AttachmentTray } from './AttachmentTray';
 import type { ModelChoice } from './ModelPicker';
 import { diagnostic } from '../lib/diagnostics';
 import { useLayoutDiagnostics } from '../lib/useLayoutDiagnostics';
@@ -32,13 +33,7 @@ export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, runni
   const canSend = !busy && !disabled && (stop || (imports.every(i => i.state === 'ready') && (!!draft.trim() || !!imports.length)));
   return <>
     <View ref={diagnosticRef} collapsable={false} onLayout={e => diagnostic('composer.layout', { ...e.nativeEvent.layout })} style={{ paddingHorizontal: 10, paddingTop: 6, paddingBottom: 4 }}>
-      {imports.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: 6 }}>{imports.map(i => <View key={i.id} style={{ maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 5, padding: 7, borderRadius: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: i.state === 'error' ? colors.danger : colors.border }}>
-        {i.image ? <Image source={{ uri: i.uri }} accessibilityLabel={`Preview of ${i.name}`} resizeMode="cover" style={{ width: 64, height: 64, borderRadius: 6, backgroundColor: colors.fill }} /> : <Ionicons name="document-outline" size={14} color={colors.muted} />}
-        <T style="caption1" numberOfLines={1} styleOverride={{ maxWidth: 160 }}>{i.name}</T>
-        {i.state === 'uploading' ? <T style="caption2" color="secondary">{`Uploading ${Math.round(i.progress * 100)}%`}</T> : null}
-        {i.state === 'error' ? <Pressable accessibilityRole="button" accessibilityLabel={`Retry ${i.name}: ${i.error}`} onPress={() => onRetryImport?.(i.id)} hitSlop={6}><T style="caption1" color="danger">Retry</T></Pressable> : null}
-        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${i.name}`} onPress={() => onRemoveImport?.(i.id)} hitSlop={6}><Ionicons name="close" size={15} color={colors.muted} /></Pressable>
-      </View>)}</View> : null}
+      <AttachmentTray items={imports} onRemove={onRemoveImport} onRetry={onRetryImport} />
       {/* Option A: text on top, a toolbar row (+ · model · Send) inside the same card. The toolbar's
           touch targets never extend upwards, so taps on the text never open the model picker. */}
       <Glass radius={16} depth="card" style={{ paddingTop: 4, paddingBottom: 6, paddingHorizontal: 6 }}>
