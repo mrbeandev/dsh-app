@@ -84,7 +84,7 @@ export class HarnessClient {
       body: JSON.stringify(rpcEnvelope(method, args, rpcId)),
     });
     if (response.status === 401) throw new HarnessError('unauthenticated', 'Auth token expired. Reconnect with the current Harness token.');
-    if (response.status === 403) throw new HarnessError('forbidden', 'Harness rejected this host or origin. Check the host configuration.');
+    if (response.status === 403) throw new HarnessError('forbidden', `Harness rejected this host (${hostOf(this.connection.url)}). On the Harness, add it as a trusted host: start with "dsh web --trusted-host ${hostOf(this.connection.url)}" or add it to trustedHosts in ~/.dsh/profiles/web/cordis.patch.yml (see the app’s README).`);
     if (response.status === 404) throw new HarnessError('unavailable', 'This Harness does not support this feature.');
     if (!response.ok) throw new HarnessError('transport', `Harness request failed (${response.status}).`);
     const data = await response.json();
@@ -174,4 +174,6 @@ export class HarnessClient {
     this.closed = true; clearTimeout(this.retry); this.streams.clear(); this.socket?.close(); this.socket = null; this.clientId = ''; this.onStatus('disconnected');
   }
 }
+/** Bare host[:port] of a Harness URL, as `--trusted-host` expects it. */
+export function hostOf(url: string) { try { return new URL(url).host; } catch { return url; } }
 export function errorMessage(error: unknown) { return error instanceof Error ? friendlyNetworkError(error.message) : 'Something went wrong. Please try again.'; }

@@ -15,12 +15,18 @@ import { readDraftFiles, saveDraftFiles, type SavedImport } from './draftStore';
  * that copy is deleted once the message is sent or the attachment removed.
  */
 const draftDir = () => new Directory(Paths.document, 'draft-attachments');
-function keepCopy(asset: DocumentPicker.DocumentPickerAsset, id: string): string {
+// File.copy is asynchronous on Android (a coroutine). It must be awaited: reading the destination while
+// it is still being written gave a truncated file, whose base64 the Harness rejects as "not canonical".
+// Only switch to the kept copy once it is complete; otherwise keep using the picker's own copy.
+async function keepCopy(asset: DocumentPicker.DocumentPickerAsset, id: string): Promise<string> {
   if (Platform.OS === 'web') return asset.uri;
   try {
     const dir = draftDir(); if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
     const dest = new File(dir, `${id}-${asset.name.replace(/[^\w.-]+/g, '_')}`);
-    new File(asset.uri).copy(dest);
+    const src = new File(asset.uri);
+    await src.copy(dest);
+    const expected = asset.size ?? src.size;
+    if (!dest.exists || (expected && dest.size !== expected)) { try { if (dest.exists) dest.delete(); } catch { /* ignore */ } return asset.uri; }
     return dest.uri;
   } catch { return asset.uri; }
 }
@@ -92,12 +98,12 @@ export function useImports(client: HarnessClient | null, sessionId: string, repo
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: [...category.types], multiple: true, copyToCacheDirectory: true });
       if (result.canceled) return;
-      const fresh = result.assets.map(picked => {
+      const fresh = await Promise.all(result.assets.map(async picked => {
         const id = randomUUID();
-        const asset = { ...picked, uri: keepCopy(picked, id) };
+        const asset = { ...picked, uri: await keepCopy(picked, id) };
         sources.current.set(id, asset);
         return { id, uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, image: !!imageMediaType(asset.name, asset.mimeType), progress: 0, state: 'uploading' as const };
-      });
+      }));
       setItems(old => [...old, ...fresh]);
       for (const item of fresh) start(item.id, sources.current.get(item.id)!);
     } catch (e) { report(errorMessage(e)); }

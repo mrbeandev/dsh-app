@@ -61,3 +61,14 @@ describe('answering questions', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('host not trusted by the Harness (HTTP 403)', () => {
+  it('explains how to add the tunnel host as a trusted host', async () => {
+    fetchMock.mockResolvedValueOnce(res(403));
+    const client = new HarnessClient({ url: 'https://dsh.example.com', token: 't' });
+    const err = await client.call('session/list', {}).catch(e => e);
+    expect(err.code).toBe('forbidden');
+    expect(err.message).toContain('dsh.example.com');
+    expect(err.message).toContain('--trusted-host dsh.example.com');
+  });
+});

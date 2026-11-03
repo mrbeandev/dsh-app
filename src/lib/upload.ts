@@ -6,6 +6,11 @@ import type { HarnessClient } from './harness';
 import { imageMediaType, parseUploadReceipt, type PromptPart } from './imports';
 import { diagnostic } from './diagnostics';
 
+/** Same shape check the Harness applies: standard alphabet, length a multiple of 4, padding only at the end. */
+export function isCanonicalBase64(s: string) {
+  return s.length > 0 && s.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
+}
+
 /** Images use the web UI's encoded image prompt path. Generic files stream to its staged-upload route. */
 export async function prepareImport(client: HarnessClient, sessionId: string, asset: DocumentPickerAsset, signal: AbortSignal, progress: (value: number) => void): Promise<PromptPart> {
   const mediaType = imageMediaType(asset.name, asset.mimeType);
@@ -23,8 +28,13 @@ export async function prepareImport(client: HarnessClient, sessionId: string, as
       reader.readAsDataURL(asset.file);
     });
     if (signal.aborted) throw new Error('Import cancelled.');
+    // The Harness only accepts canonical base64 (no line breaks, correct length/padding). A file that
+    // was still being written when read gives a short, invalid string; re-read once before giving up.
+    let clean = data.replace(/\s+/g, '');
+    if (!isCanonicalBase64(clean) && file) { await new Promise(r => setTimeout(r, 300)); clean = (await file.base64()).replace(/\s+/g, ''); }
+    if (!isCanonicalBase64(clean)) throw new Error('Couldn’t read this image completely. Remove it and attach it again.');
     progress(1);
-    return { type: 'image', mediaType, data, name: asset.name };
+    return { type: 'image', mediaType, data: clean, name: asset.name };
   }
   const url = new URL(endpoint(client.connection.url, '/api/session/uploadFileBinary'));
   url.searchParams.set('sessionId', sessionId); url.searchParams.set('name', asset.name);
