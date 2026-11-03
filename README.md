@@ -39,6 +39,34 @@ Two fields, nothing else:
 
 The app exchanges the token for a session cookie, exactly like the DSH Web UI. Tokens are stored in the device keystore. Use HTTPS for anything that leaves your network.
 
+Works with DeepSeek Harness **0.2.0** and **0.2.1** (tested up to `0.2.1-rc.5`).
+
+### Connecting through a tunnel or your own domain
+
+On the same phone (`127.0.0.1`) or your LAN address, nothing extra is needed. Behind a tunnel or reverse proxy (Cloudflare Tunnel, ngrok, Tailscale Funnel, nginx…), the Harness only accepts API requests for hostnames it trusts, so tell it your public hostname. Otherwise the app shows **"Harness rejected this host"** (HTTP 403), even with a valid token.
+
+**Quick:** pass it when starting the Harness:
+
+```sh
+dsh web --trusted-host dsh.example.com
+```
+
+**Permanent:** add it to your web profile so you don't need the flag each time. Edit `~/.dsh/profiles/web/cordis.patch.yml` and add this entry (keep the rest of the file as it is):
+
+```yaml
+- id: connection
+  name: '@deepseek-ai/dsh-client-connection'
+  inject: [webStartup]
+  config:
+    trustedHosts: !!js "[...(ctx.webStartup.trustedHosts ?? []), 'dsh.example.com']"
+```
+
+Use the bare hostname (no `https://`, no path). Add `:port` only if the public address uses a non-standard port. If the entry already exists, add your hostname to its list instead of adding a second entry.
+
+> **Upgrading from Harness 0.2.0?** In 0.2.0 this list lived under the `web-runtime` entry. From 0.2.1 the Harness reads it from `connection` only, so a host configured under `web-runtime` is silently ignored and the tunnel starts failing with "rejected this host". Move it to the `connection` entry above.
+
+Saving `cordis.patch.yml` while `dsh web` is running applies the change straight away, but it briefly drops every live connection, which can interrupt agents in the middle of a turn. Change it when no agent is working, or restart `dsh web` afterwards.
+
 ## Features
 
 **Sessions and chat**
