@@ -11,11 +11,13 @@ import { LiquidProgress } from '../components/LiquidProgress';
 import { PdfViewer, SheetViewer, toBase64 } from '../components/WebViewers';
 import { CopyButton } from '../components/CopyButton';
 import { errorMessage } from '../lib/harness';
-import { downloadBytes, formatSize, isImage, isTextLike, mimeOf, readText, statFile } from '../lib/workspaceFiles';
-import { openFile, saveDownload, shareFile, type SavedFile } from '../lib/downloads';
+import { downloadBytes, formatSize, isAudio, isImage, isMedia, isTextLike, mimeOf, readText, statFile } from '../lib/workspaceFiles';
+import { openFile, saveDownload, savedFromRecord, shareFile, streamDownload, type SavedFile } from '../lib/downloads';
+import { findDownload, recordDownload } from '../lib/downloadRecord';
+import { MediaPlayer } from '../components/MediaPlayer';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
-type Kind = 'image' | 'pdf' | 'sheet' | 'text' | 'other';
+type Kind = 'image' | 'pdf' | 'sheet' | 'text' | 'media' | 'other';
 const PREVIEW_LIMIT = { image: 20 * 1048576, pdf: 25 * 1048576, sheet: 15 * 1048576 };
 const WRAP_KEY = 'dsh.viewer.wrap';
 
@@ -25,10 +27,15 @@ function kindOf(name: string): Kind {
   if (ext === 'pdf') return 'pdf';
   if (['xlsx', 'xls', 'xlsm', 'ods', 'csv', 'tsv'].includes(ext)) return 'sheet';
   if (isTextLike(name)) return 'text';
+  if (isMedia(name)) return 'media';
   return 'other';
 }
 
-/** Full-screen file viewer (read-only): images, PDF, spreadsheets/CSV, text; download with Open/Share. */
+/**
+ * Full-screen file viewer (read-only): images, PDF, spreadsheets/CSV, text, video/audio; download with Open/Share.
+ * Downloads are remembered per Harness file (downloadRecord): reopening shows the saved copy (and plays
+ * media from it) until the file changes on the Harness or the copy is deleted.
+ */
 export default function FileScreen() {
   const { sessionId, path, size } = useLocalSearchParams<{ sessionId: string; path: string; size?: string }>();
   const { client, colors } = useApp(); const dialog = useDialog();
@@ -39,7 +46,9 @@ export default function FileScreen() {
   const [text, setText] = useState<{ lines: string[]; more: boolean } | null>(null);
   const [error, setError] = useState(''); const [loadPct, setLoadPct] = useState(0);
   const [download, setDownload] = useState<number | null>(null); const [dlError, setDlError] = useState(''); const [saved, setSaved] = useState<SavedFile | null>(null);
-  const [absolute, setAbsolute] = useState('');
+  const [absolute, setAbsolute] = useState(''); const [version, setVersion] = useState('');
+  const [play, setPlay] = useState(false);
+  const harness = client?.connection.url ?? '';
   // Line wrap preference for text files.
   // Default: no wrapping (code reads best unwrapped); the toggle is remembered once used.
   const [wrap, setWrap] = useState(false);
@@ -48,10 +57,14 @@ export default function FileScreen() {
 
   useEffect(() => {
     if (!client) return; let active = true;
-    void statFile(client, sessionId, path).then(st => { if (!active) return; setBytes(st.bytes); setAbsolute(st.absolutePath); }).catch(() => {});
+    void statFile(client, sessionId, path).then(async st => {
+      if (!active) return; setBytes(st.bytes); setAbsolute(st.absolutePath); setVersion(st.version);
+      const rec = await findDownload(client.connection.url, st.absolutePath, st.version);
+      if (active && rec) setSaved(savedFromRecord(rec));
+    }).catch(() => {});
     if (kind === 'text') {
       readText(client, sessionId, path, 1, 2000).then(p => { if (active) setText({ lines: p.text.split('\n'), more: !p.eof }); }).catch(e => { if (active) setError(errorMessage(e)); });
-    } else if (kind !== 'other') {
+    } else if (kind !== 'other' && kind !== 'media') {
       const limit = PREVIEW_LIMIT[kind];
       statFile(client, sessionId, path).then(st => {
         if ((st.bytes ?? 0) > limit) throw new Error(`Too large to preview (${formatSize(st.bytes)}). Download it to open in another app.`);
@@ -61,18 +74,28 @@ export default function FileScreen() {
     return () => { active = false; };
   }, [client, sessionId, path, kind]);
 
-  const doDownload = async () => {
+  const remember = async (file: SavedFile, stat: { absolutePath: string; version: string; bytes?: number }) => {
+    if (!harness) return;
+    await recordDownload(harness, stat.absolutePath, { version: stat.version, bytes: stat.bytes, localUri: file.local.uri, publicUri: file.publicUri, name: file.name, folderName: file.folderName });
+  };
+  const doDownload = async (thenPlay = false) => {
     if (!client || download !== null) return; setDownload(0); setDlError('');
     try {
-      const data = content ?? (await downloadBytes(client, sessionId, path, (d, t) => setDownload(t ? d / t : 0))).bytes;
-      setDownload(1); setSaved(await saveDownload(name, data));
+      let file: SavedFile; let stat: { absolutePath: string; version: string; bytes?: number };
+      if (content) { file = await saveDownload(name, content); stat = { absolutePath: absolute, version, bytes }; }
+      else if (kind === 'media' || kind === 'other') {
+        // Large files: write each 2 MB window straight to disk instead of holding the file in memory.
+        const r = await streamDownload(client, sessionId, path, name, (d, t) => setDownload(t ? Math.min(0.99, d / t) : 0)); file = r.saved; stat = r.stat;
+      } else { const r = await downloadBytes(client, sessionId, path, (d, t) => setDownload(t ? d / t : 0)); setDownload(1); file = await saveDownload(name, r.bytes); stat = r.stat; }
+      setSaved(file); await remember(file, stat);
+      if (thenPlay) setPlay(true);
     } catch (e) { setDlError(errorMessage(e)); } finally { setDownload(null); }
   };
 
   const imageUri = useMemo(() => (kind === 'image' && content ? `data:${mimeOf(name)};base64,${toBase64(content)}` : ''), [kind, content, name]);
 
   return <Screen>
-    <Header title={name} subtitle={[formatSize(bytes), kind === 'other' ? '' : kind === 'sheet' ? 'Spreadsheet' : kind === 'pdf' ? 'PDF' : kind === 'image' ? 'Image' : 'Text'].filter(Boolean).join(' · ')} back>
+    <Header title={name} subtitle={[formatSize(bytes), kind === 'other' ? '' : kind === 'sheet' ? 'Spreadsheet' : kind === 'pdf' ? 'PDF' : kind === 'image' ? 'Image' : kind === 'media' ? (isAudio(name) ? 'Audio' : 'Video') : 'Text'].filter(Boolean).join(' · ')} back>
       {kind === 'text' ? <IconButton icon={wrap ? 'return-down-back' : 'reorder-four-outline'} size={18} label={wrap ? 'Turn off line wrap' : 'Wrap long lines'} onPress={toggleWrap} /> : null}
       {absolute ? <CopyButton value={absolute} label="Copy file path" /> : null}
     </Header>
@@ -84,19 +107,27 @@ export default function FileScreen() {
         : kind === 'pdf' ? (content ? <PdfViewer bytes={content} /> : <Loading label={`Loading PDF… ${Math.round(loadPct * 100)}%`} />)
         : kind === 'sheet' ? (content ? <SheetViewer bytes={content} name={name} /> : <Loading label={`Loading spreadsheet… ${Math.round(loadPct * 100)}%`} />)
         : kind === 'text' ? (text ? <TextView lines={text.lines} more={text.more} wrap={wrap} /> : <Loading label="Loading…" />)
+        : kind === 'media' ? (saved && play ? <MediaPlayer uri={saved.local.uri} name={name} audio={isAudio(name)} />
+          : <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 14, padding: 24 }}>
+              <Pressable accessibilityRole="button" accessibilityLabel={saved ? `Play ${name}` : `Download and play ${name}`} disabled={!client || download !== null} onPress={() => { if (saved) setPlay(true); else void doDownload(true); }}
+                style={({ pressed }) => ({ width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: download !== null ? 0.4 : pressed ? 0.75 : 1 })}>
+                <Ionicons name="play" size={38} color={colors.bg} style={{ marginLeft: 5 }} />
+              </Pressable>
+              <T style="footnote" color="secondary" align="center">{saved ? 'Downloaded — plays from this phone.' : download !== null ? `Downloading ${Math.round(download * 100)}% — it plays when done.` : `Tap to download${bytes ? ` (${formatSize(bytes)})` : ''} and play here.`}</T>
+            </View>)
         : <View style={{ flex: 1, justifyContent: 'center' }}><Empty icon="document-outline" title="No Preview" detail={`${mimeOf(name)} files can’t be shown here. Download it to open in another app.`} /></View>}
     </View>
     <View style={{ padding: 12, gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator, backgroundColor: colors.bg }}>
       {dlError ? <T style="caption1" color="danger">{dlError}</T> : null}
       {saved ? <View style={{ gap: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Ionicons name="checkmark-circle" size={18} color={colors.live} /><T style="caption1" color="secondary" numberOfLines={2} styleOverride={{ flex: 1 }}>{saved.publicUri ? `Saved to ${saved.folderName ?? 'your chosen folder'} as ${saved.name}` : `Saved in the app as ${saved.name}`}</T></View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Ionicons name="checkmark-circle" size={18} color={colors.live} /><T style="caption1" color="secondary" numberOfLines={2} styleOverride={{ flex: 1 }}>{saved.publicUri ? `Downloaded to ${saved.folderName ?? 'your chosen folder'} as ${saved.name}` : `Downloaded in the app as ${saved.name}`}</T></View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Action icon="open-outline" label="Open" onPress={() => void openFile(saved).catch(e => dialog.alert('No App to Open This File', errorMessage(e), 'warning'))} />
           <Action icon="share-outline" label="Share" onPress={() => void shareFile(saved).catch(e => dialog.alert('Couldn’t Share', errorMessage(e), 'danger'))} />
         </View>
       </View>
         : download !== null ? <LiquidProgress progress={download} label={download >= 1 ? 'Saving…' : `Downloading ${Math.round(download * 100)}%`} />
-        : <Pressable accessibilityRole="button" accessibilityLabel={`Download ${name} to this device`} disabled={!client} onPress={() => void doDownload()} style={({ pressed }) => ({ height: 46, borderRadius: 11, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: pressed ? 0.75 : 1 })}>
+        : <Pressable accessibilityRole="button" accessibilityLabel={`Download ${name} to this device`} disabled={!client} onPress={() => void doDownload(false)} style={({ pressed }) => ({ height: 46, borderRadius: 11, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: pressed ? 0.75 : 1 })}>
           <Ionicons name="download-outline" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg} styleOverride={{ fontSize: 14 }}>{`Download${bytes ? ` · ${formatSize(bytes)}` : ''}`}</T>
         </Pressable>}
     </View>

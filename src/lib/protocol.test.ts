@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTranscript, endpoint, normalizeConnection, rpcEnvelope, sessionTitle, toolTitle, type TranscriptRow, type WireEvent } from './protocol';
+import { buildTranscript, endpoint, normalizeConnection, rpcEnvelope, cleanTitle, sessionTitle, toolTitle, type TranscriptRow, type WireEvent } from './protocol';
 
 const ev = (seq: number, type: string, data: Record<string, unknown> = {}): WireEvent => ({ type, seq, time: 0, data });
 const text = (t: string) => [{ type: 'text', text: t }];
@@ -77,7 +77,8 @@ describe('transcript', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: 'tool', approval: 'allowed', result: 'Tue' });
   });
-  it('keeps unknown events inspectable', () => expect(buildTranscript([ev(3, 'future/event', { a: 1 })])[0]?.kind).toBe('event'));
+  // Unknown event types are internal (the web chat hides them); they stay in the log/diagnostics, not as raw rows.
+  it('does not render unknown events as rows', () => expect(buildTranscript([ev(3, 'future/event', { a: 1 })])).toEqual([]));
 });
 
 describe('tool titles', () => {
@@ -85,5 +86,45 @@ describe('tool titles', () => {
     expect(toolTitle('bash', '{"command":"npm test\\nmore"}')).toEqual({ verb: 'Ran', target: 'npm test' });
     expect(toolTitle('read', '{"file_path":"src/app/index.tsx"}')).toEqual({ verb: 'Read', target: 'index.tsx' });
     expect(toolTitle('mcp__x__do_thing', 'not json').verb).toBe('do thing');
+  });
+});
+
+describe('Harness 0.2.1 events', () => {
+  it('hides background-job bookkeeping (job/registered, job/settled)', () => {
+    const rows = buildTranscript([
+      ev(1, 'job/registered', { jobId: 'j1', kind: 'bash', label: 'npm test', startedAt: 1 }),
+      ev(2, 'job/settled', { jobId: 'j1', status: 'completed', finishedAt: 2 }),
+    ]);
+    expect(rows).toEqual([]);
+  });
+  it('never dumps unknown event types as raw JSON rows', () => {
+    expect(buildTranscript([ev(1, 'some-plugin/new-thing', { a: 1 }), ev(2, 'team/task', {}), ev(3, 'hook/result', {})])).toEqual([]);
+  });
+  it('shows a model retry as a readable warning', () => {
+    const [row] = buildTranscript([ev(1, 'llm/retry', { retry: 0, maxRetries: 3, delayMs: 4000, failure: { message: 'Overloaded', status: 529 } })]) as any[];
+    expect(row).toMatchObject({ kind: 'failure', warning: true });
+    expect(row.text).toBe('Model request failed (529) — retrying in 4s (attempt 1 of 3). Overloaded');
+  });
+  it('shows plan mode, working directory and presented files as notices', () => {
+    const rows = buildTranscript([
+      ev(1, 'plan/mode', { active: true }),
+      ev(2, 'working-directory/change', { cwd: '/srv/app' }),
+      ev(3, 'deliverables/presented', { turn: 1, callId: 'c', files: [{ path: 'out/report.pdf' }] }),
+    ]) as any[];
+    expect(rows.map(r => [r.kind, r.label, r.text])).toEqual([['notice', 'Plan mode on', undefined], ['notice', 'Working directory', '/srv/app'], ['notice', 'Presented a file', 'out/report.pdf']]);
+  });
+});
+
+describe('session titles from title models', () => {
+  it('unwraps a JSON reply stored as the title', () => {
+    expect(cleanTitle('{"title": "Build Creative Ideas Bank page with voice AI interview"}')).toBe('Build Creative Ideas Bank page with voice AI interview');
+    expect(sessionTitle({ sessionId: 's', projections: { values: { title: '```json\n{"title":"Fix login"}\n```' } } } as any)).toBe('Fix login');
+  });
+  it('handles cut-off JSON, quotes and a "Title:" prefix, and leaves normal titles alone', () => {
+    expect(cleanTitle('{"title": "Add dark mode to sett')).toBe('Add dark mode to sett');
+    expect(cleanTitle('"Refactor the router"')).toBe('Refactor the router');
+    expect(cleanTitle('Title: Ship v2')).toBe('Ship v2');
+    expect(cleanTitle('ok pull latest codes now')).toBe('ok pull latest codes now');
+    expect(cleanTitle('Use {braces} in config')).toBe('Use {braces} in config');
   });
 });

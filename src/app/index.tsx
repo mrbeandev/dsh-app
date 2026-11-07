@@ -11,6 +11,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/app';
 import { Button, Empty, ErrorNotice, Header, IconButton, ScrollEdge, SearchField, Screen, T, slop } from '../components/ui';
+import { snippetLine, useContentSearch } from '../lib/useContentSearch';
 import { Glass, GlassTarget, GlassTargetProvider } from '../components/Glass';
 import { sessionTitle, isListedSession } from '../lib/protocol';
 import { errorMessage } from '../lib/harness';
@@ -42,6 +43,9 @@ export default function Home() {
   const { unseen } = useUnseen();
   const live = status === 'connected';
   const rows = useMemo(() => sessions.filter(x => isListedSession(x) && !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || (live && x.running))), [sessions, archived, query, filter, live]);
+  // Message-content matches from the Harness, minus sessions already matched by title/folder above.
+  const content = useContentSearch(client, query);
+  const contentHits = useMemo(() => { const shownIds = new Set(rows.map(r => r.sessionId)); return content.hits.filter(h => !shownIds.has(h.sessionId) && !archived.includes(h.sessionId)).slice(0, 8); }, [content.hits, rows, archived]);
   const groups = useMemo(() => groupWorkspaces(rows, workspaces).filter(g => g.sessions.length || (!query && filter === 'All')).map(g => ({ ...g, sessions: [...g.sessions].sort((a, b) => Number(pinned.includes(b.sessionId)) - Number(pinned.includes(a.sessionId))) })), [rows, workspaces, query, filter, pinned]);
   const collapseByDefault = groups.length > 5;
   const isOpen = useCallback((id: string) => !!query || (openState[id] ?? !collapseByDefault), [query, openState, collapseByDefault]);
@@ -117,7 +121,17 @@ export default function Home() {
             </Pressable>
             <SyncStatus />
           </View>
-          <SearchField value={query} onChangeText={setQuery} placeholder="Search workspaces and sessions" />
+          <SearchField value={query} onChangeText={setQuery} placeholder="Search sessions and messages" />
+          {query.trim().length >= 3 && (content.loading || contentHits.length) ? <View style={{ gap: 4 }}>
+            <T style="caption2" color="secondary" weight="600" styleOverride={{ letterSpacing: 0.4 }}>{content.loading && !contentHits.length ? 'SEARCHING MESSAGES…' : 'FOUND IN MESSAGES'}</T>
+            {contentHits.map(h => { const s2 = byId.get(h.sessionId); return <Pressable key={h.sessionId} accessibilityRole="button" accessibilityLabel={`${s2 ? sessionTitle(s2) : 'Session'}: ${snippetLine(h.snippet)}`}
+              onPress={() => router.push({ pathname: '/thread/[id]', params: { id: h.sessionId, harness: client?.connection.url ?? savedUrl } })}
+              style={({ pressed }) => ({ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, gap: 2, backgroundColor: pressed ? colors.state : colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border })}>
+              <T style="footnote" weight="600" numberOfLines={1}>{s2 ? sessionTitle(s2) : h.sessionId}</T>
+              <T style="caption1" color="secondary" numberOfLines={2}>{snippetLine(h.snippet)}</T>
+            </Pressable>; })}
+            {content.more ? <T style="caption2" color="tertiary">More matches on the Harness — refine your search.</T> : null}
+          </View> : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             {(['All', 'Working'] as const).map(x => { const on = filter === x; return <Pressable key={x} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setFilter(x)} hitSlop={slop(30)} style={({ pressed }) => ({ height: 30, paddingHorizontal: 12, borderRadius: 8, boxShadow: on ? `inset 0 1px 0 ${colors.rim}` : undefined, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: on ? colors.fill : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? colors.glassEdge : 'transparent', opacity: pressed ? 0.6 : 1 })}><T style="footnote" weight="500">{x}</T>{x === 'Working' && workingCount ? <T style="caption1" color="secondary">{workingCount}</T> : null}</Pressable>; })}
             <View style={{ flex: 1 }} />

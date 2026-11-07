@@ -156,6 +156,28 @@ export class HarnessClient {
     };
   }
   /**
+   * Two-way stream (Harness "uplink" endpoints such as terminal/attach): like follow(), plus `send(item)`
+   * which delivers one uplink item on the same stream, matching the web client's `{type:'item'}` frames.
+   * Items sent while the socket is down are dropped; on reconnect the stream is re-opened (the Host
+   * then starts it again, e.g. a terminal re-sends a full screen snapshot).
+   */
+  duplex(endpoint: string, args: Record<string, unknown>, receive: (frame: Frame) => void) {
+    const streamId = String(++this.nextStream);
+    this.streams.set(streamId, { endpoint, args, receive });
+    this.open(streamId, endpoint, args);
+    return {
+      send: (value: unknown) => {
+        if (!this.streams.has(streamId) || this.socket?.readyState !== WebSocket.OPEN) return false;
+        this.socket.send(JSON.stringify({ type: 'item', streamId, value }));
+        return true;
+      },
+      close: () => {
+        if (!this.streams.delete(streamId)) return;
+        if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'cancel', streamId }));
+      },
+    };
+  }
+  /**
    * Answer a question/approval. Bounded: on a flaky tunnel the reply can be lost when the connection
    * flips mid-request, so give up after 15 s instead of leaving the card spinning; the card re-sends
    * once the Harness replays the request on the new connection.

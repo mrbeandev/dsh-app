@@ -27,8 +27,22 @@ export function rpcEnvelope(method: string, args: Record<string, unknown>, rpcId
   return { type: 'client-request', rpcId, method, payload: { args } };
 }
 export function sessionTitle(session: Session) {
-  const title = session.projections?.values.title;
-  return typeof title === 'string' && title ? title : 'Untitled session';
+  const title = cleanTitle(session.projections?.values.title);
+  return title || 'Untitled session';
+}
+/**
+ * Some title models reply with JSON (`{"title": "…"}`) or wrap the title in quotes/code fences, and the
+ * Harness stores that reply verbatim. Show just the title text.
+ */
+export function cleanTitle(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  let t = value.trim().replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+  if (t.startsWith('{')) {
+    try { const o = JSON.parse(t); const v = o?.title ?? o?.name ?? o?.session_title; if (typeof v === 'string') t = v.trim(); } catch {
+      const m = /"(?:title|name)"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(t); if (m) t = m[1].replace(/\\"/g, '"').trim(); // cut-off JSON
+    }
+  }
+  return t.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').replace(/^title:\s*/i, '').trim();
 }
 export function textContent(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -76,7 +90,14 @@ export type TranscriptRow =
 export type ContextIcon = 'time' | 'goal' | 'skill' | 'plan' | 'schedule' | 'hook' | 'tools' | 'answer' | 'subagent' | 'webhook' | 'info';
 
 /** Event types that carry no user-visible content (the web chat hides them too). */
-const HIDDEN = new Set(['turn/start', 'step/start', 'step/end', 'request/header', 'request/context', 'session/end-seed', 'attempt/start', 'attempt/started', 'permission/preset', 'sandbox/mode', 'approval/policy', 'model/selection', 'session/title', 'agent/inbox/spliced', 'compaction/prune', 'goal/change', 'todo/write', 'tool/ptc-dispatch', 'tool/ptc-dispatch-start']);
+const HIDDEN = new Set(['turn/start', 'step/start', 'step/end', 'request/header', 'request/context', 'session/end-seed', 'attempt/start', 'attempt/started', 'permission/preset', 'sandbox/mode', 'approval/policy', 'model/selection', 'session/title', 'agent/inbox/spliced', 'compaction/prune', 'goal/change', 'todo/write', 'tool/ptc-dispatch', 'tool/ptc-dispatch-start',
+  // Harness 0.2.1 bookkeeping: background-job registry, title/feedback/hook/delivery logs, subagent and
+  // team metadata, workflow lifecycle, image offload. None carry chat content.
+  'job/registered', 'job/settled', 'llm/retry-started', 'session/title-llm-request', 'web/deepseek-search-llm-request',
+  'session-log-deepseek/delivery-accepted', 'feedback/message-delete', 'feedback/message-put', 'feedback/record',
+  'hook/invoked', 'hook/result', 'image/offload', 'agent-preset/selected', 'subagent/catalog', 'subagent/descriptor',
+  'subagent/model-selection-policy', 'team/member', 'team/message/queued', 'team/message/delivered', 'team/task',
+  'tool-workflow/agent-start', 'tool-workflow/agent-end', 'tool-workflow/run-start', 'tool-workflow/run-end', 'workspace/changes']);
 
 /** How each user/message `source.kind` is presented. Unknown non-user kinds fall back to a generic context row. */
 const CONTEXT_SOURCES: Record<string, { label: string; icon: ContextIcon; hidden?: boolean }> = {
@@ -236,9 +257,33 @@ export function buildTranscript(events: readonly WireEvent[]): TranscriptRow[] {
         if (event.type === 'command/run') rows.push({ id, kind: 'notice', label: `/${String(d.name ?? d.command ?? 'command').replace(/^\//, '')}`, text: typeof d.line === 'string' ? d.line : undefined });
         break;
       }
+      case 'llm/retry': {
+        // The provider failed a request and the Harness is retrying it.
+        const f = (d.failure ?? {}) as { message?: string; status?: number };
+        const of = typeof d.maxRetries === 'number' ? ` of ${d.maxRetries}` : '';
+        const wait = typeof d.delayMs === 'number' && d.delayMs >= 1000 ? ` in ${Math.round(d.delayMs / 1000)}s` : '';
+        rows.push({ id, kind: 'failure', warning: true, text: `Model request failed${f.status ? ` (${f.status})` : ''} — retrying${wait} (attempt ${Number(d.retry ?? 0) + 1}${of}).${f.message ? ` ${String(f.message).slice(0, 200)}` : ''}` });
+        break;
+      }
+      case 'plan/mode': rows.push({ id, kind: 'notice', label: d.active ? 'Plan mode on' : 'Plan mode off' }); break;
+      case 'working-directory/change': if (typeof d.cwd === 'string') rows.push({ id, kind: 'notice', label: 'Working directory', text: d.cwd }); break;
+      case 'deliverables/presented': {
+        const files = Array.isArray(d.files) ? (d.files as { path?: string }[]).map(x => String(x.path ?? '')).filter(Boolean) : [];
+        if (files.length) rows.push({ id, kind: 'notice', label: files.length === 1 ? 'Presented a file' : `Presented ${files.length} files`, text: files.join('\n') });
+        break;
+      }
+      case 'schedule/change': {
+        const op = String(d.operation ?? '');
+        const sch = (d.schedule ?? {}) as { title?: string; prompt?: string };
+        const what = sch.title ?? (typeof sch.prompt === 'string' ? sch.prompt.slice(0, 80) : '');
+        if (op === 'create') rows.push({ id, kind: 'notice', label: 'Reminder scheduled', text: what || undefined });
+        else if (op === 'delete') rows.push({ id, kind: 'notice', label: 'Reminder removed' });
+        break;
+      }
       default:
-        if (event.type.startsWith('tool/')) break;
-        rows.push({ id, kind: 'event', label: event.type, text: JSON.stringify(d, null, 2) });
+        // Unknown event types (newer Harness, plugins) are internal unless proven otherwise: the web chat
+        // doesn't show them, and a raw JSON row is noise. They stay in the log and the diagnostics.
+        break;
     }
   }
   return rows;

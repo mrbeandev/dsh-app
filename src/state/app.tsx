@@ -11,6 +11,7 @@ import { cacheEpoch, readCatalog, writeCatalog, clearWorkspaceHistory } from '..
 import { light, dark, type SolidGlassColors } from '../lib/solidGlass';
 type ThemeMode = 'system' | 'light' | 'dark';
 export type Colors = SolidGlassColors;
+const noWorkspaceList = new Set<string>();
 type AppState = { flushOutbox: () => Promise<void>; client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; deviceOffline: boolean; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
 const credentials = { read: async () => Platform.OS === 'web' ? null : SecureStore.getItemAsync('dsh.connection'), save: async (c: Connection) => { if (Platform.OS !== 'web') await SecureStore.setItemAsync('dsh.connection', JSON.stringify(c)); }, clear: async () => { if (Platform.OS !== 'web') await SecureStore.deleteItemAsync('dsh.connection'); } };
@@ -44,7 +45,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const epoch = cacheEpoch(c.connection.url);
     const task = (async () => {
       const first = c.initialList; c.initialList = null;
-      const [result, workspace] = await Promise.all([first ?? c.call('session/list', { _request: {} }), c.call('workspace/list', {}).catch(() => null)]);
+      // workspace/list was removed in Harness 0.2.1 (workspaces arrive on the workspace/follow stream);
+      // stop asking once it reports missing, so every refresh doesn't waste a round trip.
+      const listWorkspaces = noWorkspaceList.has(c.connection.url) ? Promise.resolve(null)
+        : c.call('workspace/list', {}).catch(e => { if (/no active Remote method|not found|unknown/i.test(String((e as Error)?.message ?? e))) noWorkspaceList.add(c.connection.url); return null; });
+      const [result, workspace] = await Promise.all([first ?? c.call('session/list', { _request: {} }), listWorkspaces]);
       if (current.current !== c) return;
       // Keep live projection values (inbox, todos, goal, …) that arrived over session/control: list
       // items only carry partial hints, so a plain replace would drop the queue and other live state.

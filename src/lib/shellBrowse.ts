@@ -1,4 +1,5 @@
 import { randomUUID } from 'expo-crypto';
+import { openTerminal, type TerminalConnection } from './terminalStream';
 import type { HarnessClient } from './harness';
 
 /**
@@ -61,9 +62,8 @@ export function parseListing(body: string, home: string): ShellListing {
 
 export class ShellBrowser {
   private id = `dsh-picker-${randomUUID().slice(0, 8)}`;
-  private attachment = `att-${randomUUID().slice(0, 12)}`;
   private out = '';
-  private stop: (() => void) | null = null;
+  private conn: TerminalConnection | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   home = '/';
 
@@ -75,7 +75,7 @@ export class ShellBrowser {
     // follow stream delivers its opening snapshot, so wait for that before writing anything.
     let attached!: () => void; let failed!: (e: Error) => void;
     const ready = new Promise<void>((res, rej) => { attached = res; failed = rej; });
-    this.stop = this.client.follow('terminal/follow', { agentId: this.sessionId, id: this.id, attachmentId: this.attachment }, f => {
+    this.conn = openTerminal(this.client, this.sessionId, this.id, f => {
       if (f.type === 'snapshot') { this.out += f.screen ?? ''; attached(); }
       else if (f.type === 'output') this.out += f.data ?? '';
       else if (f.type === 'stream-error') failed(new Error(f.error?.message ?? 'Terminal stream failed.'));
@@ -90,7 +90,7 @@ export class ShellBrowser {
   }
 
   private async write(data: string) {
-    const call = () => this.client.call('terminal/write', { agentId: this.sessionId, id: this.id, attachmentId: this.attachment, data });
+    const call = () => { if (!this.conn) throw new Error('Terminal not connected.'); return this.conn.write(data); };
     try { return await call(); }
     catch (e) {
       if (!/controlled by another attachment/i.test(String((e as Error)?.message ?? e))) throw e;
@@ -131,7 +131,7 @@ export class ShellBrowser {
   }
 
   async close() {
-    this.stop?.(); this.stop = null;
+    this.conn?.close(); this.conn = null;
     await this.client.call('terminal/close', { agentId: this.sessionId, id: this.id }).catch(() => {});
   }
 }

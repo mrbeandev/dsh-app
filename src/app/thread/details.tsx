@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useModelLabel } from '../../lib/modelNames';
+import { ScheduleSection } from '../../components/ScheduleSection';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
@@ -28,7 +29,7 @@ const EVENT_GROUPS: { label: string; match: (t: string) => boolean }[] = [
 type JournalSummary = { total: number; first: number; last: number; counts: { label: string; count: number }[]; other: number; savedAt?: number; bytes: number; complete?: boolean };
 
 export default function Details() {
-  const { id } = useLocalSearchParams<{ id: string }>(); const { client, sessions, refresh, savedUrl, colors } = useApp();
+  const { id } = useLocalSearchParams<{ id: string }>(); const { client, sessions, refresh, savedUrl, colors, pinned } = useApp();
   const session = sessions.find(x => x.sessionId === id);
   const [title, setTitle] = useState(session ? sessionTitle(session) : ''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [picker, setPicker] = useState(false);
   // Live projections (fresh numbers); fall back to whatever the cached session list carried.
@@ -37,6 +38,13 @@ export default function Details() {
   const loading = !live && !session?.projections?.values;
   const [journal, setJournal] = useState<JournalSummary | null>(null);
 
+  // Pins are stored on the Harness (workspace/pinSession), so the web UI and other phones see them too.
+  const isPinned = pinned.includes(id);
+  const togglePin = async () => {
+    if (!client) return; setError('');
+    try { await client.request(isPinned ? 'workspace/unpinSession' : 'workspace/pinSession', { sessionId: id }); }
+    catch (e) { setError(errorMessage(e)); }
+  };
   useEffect(() => {
     if (!client) return; let active = true;
     client.request<{ values: Values }>('session/projections', { sessionId: id }).then(r => { if (active) setLive(r.values ?? {}); }).catch(() => {});
@@ -80,6 +88,7 @@ export default function Details() {
       {values.agentPreset ? <Row icon="person-circle-outline" title="Persona" value={titleCase(String(values.agentPreset))} chevron={false} /> : null}
       {values.permissions?.currentValue ? <Row icon="shield-checkmark-outline" title="Access" value={titleCase(String(values.permissions.currentValue))} chevron={false} /> : null}
       {session?.cwd ? <Row icon="folder-outline" title="Directory" subtitle={session.cwd} chevron={false} copy={session.cwd} /> : null}
+      {client && session && !session.parentSessionId ? <Row icon={isPinned ? 'pin' : 'pin-outline'} title={isPinned ? 'Pinned to Top' : 'Pin to Top'} subtitle={isPinned ? 'Shown first in its workspace, on every device.' : undefined} selected={isPinned} chevron={false} onPress={() => void togglePin()} /> : null}
     </Section>
 
     <Section header="Context" footer="How full the model's context window is, and what fills it.">
@@ -131,6 +140,7 @@ export default function Details() {
       {todos.length ? <Row icon="checkbox-outline" title="To-dos" value={`${todos.filter(t => t.status === 'completed').length}/${todos.length} done`} chevron={false} /> : null}
     </Section> : null}
 
+    {id ? <ScheduleSection sessionId={id} /> : null}
     <Section header="Diagnostics" footer="What this device has cached for the session. Chats sync from the Harness when opened.">
       {journal ? <>
         <Row icon="albums-outline" title="Cached events" value={grouped(journal.total)} subtitle={journal.total ? `Event #${journal.first} – #${journal.last}${journal.other ? ` · ${journal.other} bookkeeping` : ''}` : undefined} chevron={false} />

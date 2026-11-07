@@ -8,6 +8,7 @@ import { useApp } from '../state/app';
 import { useDialog } from '../components/Dialog';
 import { Empty, ErrorNotice, Header, IconButton, Screen, T } from '../components/ui';
 import { errorMessage } from '../lib/harness';
+import { openTerminal, type TerminalConnection } from '../lib/terminalStream';
 import * as SecureStore from 'expo-secure-store';
 import { XTerm, type XTermHandle } from '../components/XTerm';
 
@@ -65,7 +66,7 @@ export default function Terminal() {
 function TerminalView({ sessionId, id, onState }: { sessionId: string; id: string; onState: (info: TermInfo) => void }) {
   const { client, colors } = useApp();
   const term = useRef<XTermHandle>(null);
-  const [attachment] = useState(() => `att-${randomUUID().slice(0, 12)}`);
+  const conn = useRef<TerminalConnection | null>(null);
   const [state, setState] = useState<TermInfo['state']>('running'); const [error, setError] = useState('');
   const [fontSize, setFontSize] = useState(12); const [ctrl, setCtrl] = useState(false);
   const [ready, setReady] = useState(false);
@@ -78,14 +79,16 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
     if (!client) return;
     // Output is buffered until xterm reports ready, then flushed in order.
     const out = (fn: (t: XTermHandle) => void, raw: () => void) => { if (term.current && readyRef.current) fn(term.current); else raw(); };
-    const stop = client.follow('terminal/follow', { agentId: sessionId, id, attachmentId: attachment }, f => {
+    const c = openTerminal(client, sessionId, id, f => {
       if (f.type === 'snapshot') { setState(f.info?.state ?? 'running'); out(t => t.reset(f.screen ?? ''), () => { snapshot.current = f.screen ?? ''; pending.current = []; }); }
       else if (f.type === 'output') out(t => t.write(f.data ?? ''), () => pending.current.push(f.data ?? ''));
       else if (f.type === 'state') { setState(f.info?.state); onStateRef.current(f.info); }
       else if (f.type === 'stream-error') setError(f.error?.message ?? 'Terminal stream ended.');
+      if (f.type === 'snapshot' || f.type === 'output') setError('');
     });
-    return () => stop();
-  }, [client, sessionId, id, attachment]);
+    conn.current = c;
+    return () => { c.close(); if (conn.current === c) conn.current = null; };
+  }, [client, sessionId, id]);
   const onReady = () => {
     readyRef.current = true; setReady(true);
     if (snapshot.current !== null) term.current?.reset(snapshot.current);
@@ -101,9 +104,9 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
     const o = outbox.current; if (o.busy || !o.buf || !client) return;
     o.busy = true;
     try {
-      while (o.buf) { const data = o.buf; o.buf = ''; await client.call('terminal/write', { agentId: sessionId, id, attachmentId: attachment, data }); }
+      while (o.buf) { const data = o.buf; o.buf = ''; if (!conn.current) throw new Error('Terminal not connected.'); await conn.current.write(data); }
     } catch (e) { setError(errorMessage(e)); o.buf = ''; } finally { o.busy = false; }
-  }, [client, sessionId, id, attachment]);
+  }, [client]);
   const send = (data: string) => { if (!client || state !== 'running') return; outbox.current.buf += data; void flush(); };
   // With the Ctrl key latched, the next typed letter becomes its control code (Ctrl-A … Ctrl-Z, Ctrl-[ etc.).
   const onInput = (data: string) => {
@@ -111,7 +114,7 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
     send(data);
   };
   const resizeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const onResize = (cols: number, rows: number) => { clearTimeout(resizeTimer.current); resizeTimer.current = setTimeout(() => { void client?.call('terminal/resize', { agentId: sessionId, id, attachmentId: attachment, cols, rows }).catch(() => {}); }, 120); };
+  const onResize = (cols: number, rows: number) => { clearTimeout(resizeTimer.current); resizeTimer.current = setTimeout(() => { conn.current?.resize(cols, rows); }, 120); };
   const zoom = (d: number) => setFontSize(f => { const n = Math.max(8, Math.min(24, f + d)); term.current?.setFontSize(n); void SecureStore.setItemAsync(FONT_KEY, String(n)).catch(() => {}); return n; });
 
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
