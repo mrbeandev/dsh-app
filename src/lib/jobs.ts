@@ -42,3 +42,14 @@ export function appendOutput(prev: string, chunks: JobChunk[]) {
 export function stripAnsi(s: string) {
   return s.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007|\r(?!\n)/g, '');
 }
+
+/**
+ * A job's label is often the agent's whole command (multi-line scripts, heredocs). For titles and rows
+ * use one short line: the first non-empty line, trimmed, with an ellipsis when cut.
+ */
+export function shortLabel(label: string | undefined, fallback = 'Job', max = 80) {
+  const first = String(label ?? '').split('\n').map(l => l.trim()).find(Boolean) ?? '';
+  if (!first) return fallback;
+  const more = first.length > max || String(label).trim().includes('\n');
+  return first.length > max ? `${first.slice(0, max - 1)}…` : more ? `${first} …` : first;
+}

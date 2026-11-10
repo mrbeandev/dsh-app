@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendOutput, jobStatusText, OUTPUT_LIMIT, sortJobs, stripAnsi, type JobView } from './jobs';
+import { appendOutput, jobStatusText, OUTPUT_LIMIT, shortLabel, sortJobs, stripAnsi, type JobView } from './jobs';
 import { scheduleRule, sortSchedules, type Schedule } from './schedules';
 import { untilTime } from './time';
 import { snippetLine } from './useContentSearch';
@@ -53,5 +53,15 @@ describe('content search snippets', () => {
   it('collapses whitespace and shortens long snippets', () => {
     expect(snippetLine('  fix the\n\n login   bug  ')).toBe('fix the login bug');
     expect(snippetLine('a'.repeat(200), 20)).toBe(`${'a'.repeat(19)}…`);
+  });
+});
+
+describe('job labels', () => {
+  it('uses one short line for titles when the label is a whole multi-line command', () => {
+    const cmd = "cd /mnt/x/ReelStudio && python3 - <<'EOF'\nimport json, urllib.request, time\ntodo = []\nEOF";
+    expect(shortLabel(cmd)).toBe("cd /mnt/x/ReelStudio && python3 - <<'EOF' …");
+    expect(shortLabel('npm run dev')).toBe('npm run dev');
+    expect(shortLabel('x'.repeat(100), 'Job', 20)).toBe(`${'x'.repeat(19)}…`);
+    expect(shortLabel('  \n  ', 'bash-1a2b')).toBe('bash-1a2b');
   });
 });

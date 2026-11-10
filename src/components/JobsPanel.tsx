@@ -7,7 +7,7 @@ import { Sheet } from './Sheet';
 import { T } from './ui';
 import { CopyButton } from './CopyButton';
 import { errorMessage } from '../lib/harness';
-import { appendOutput, isLive, jobStatusText, sortJobs, stripAnsi, type JobChunk, type JobView } from '../lib/jobs';
+import { appendOutput, isLive, jobStatusText, shortLabel, sortJobs, stripAnsi, type JobChunk, type JobView } from '../lib/jobs';
 import { relativeTime } from '../lib/time';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
@@ -50,7 +50,7 @@ export function JobsChip({ sessionId }: { sessionId: string }) {
 function JobsSheet({ sessionId, jobs, visible, onClose }: { sessionId: string; jobs: JobView[]; visible: boolean; onClose: () => void }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const selected = useMemo(() => jobs.find(j => j.id === openId) ?? null, [jobs, openId]);
-  return <Sheet visible={visible} onClose={() => { setOpenId(null); onClose(); }} title={selected ? selected.label || selected.id : 'Background Jobs'} height={0.85}>
+  return <Sheet visible={visible} onClose={() => { setOpenId(null); onClose(); }} title={selected ? shortLabel(selected.label, selected.id, 60) : 'Background Jobs'} height={0.85}>
     {selected ? <JobDetail sessionId={sessionId} job={selected} onBack={() => setOpenId(null)} />
       : <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24, gap: 6 }}>
           {jobs.map(j => <JobRow key={j.id} job={j} onPress={() => setOpenId(j.id)} />)}
@@ -62,11 +62,11 @@ function JobRow({ job, onPress }: { job: JobView; onPress: () => void }) {
   const { colors } = useApp();
   const live = isLive(job);
   const tint = live ? colors.live : job.status === 'failed' ? colors.danger : colors.muted;
-  return <Pressable accessibilityRole="button" accessibilityLabel={`${job.label || job.id}, ${jobStatusText(job)}`} onPress={onPress}
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${shortLabel(job.label, job.id)}, ${jobStatusText(job)}`} onPress={onPress}
     style={({ pressed }) => ({ minHeight: 52, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 11, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: pressed ? colors.state : colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border })}>
     <Ionicons name={live ? 'radio-button-on' : job.status === 'failed' ? 'close-circle' : job.status === 'killed' ? 'stop-circle' : 'checkmark-circle'} size={16} color={tint} />
     <View style={{ flex: 1 }}>
-      <T style="footnote" weight="600" numberOfLines={1}>{job.label || job.id}</T>
+      <T style="footnote" weight="600" numberOfLines={1}>{shortLabel(job.label, job.id)}</T>
       <T style="caption2" color="secondary" numberOfLines={1}>{`${jobStatusText(job)} · ${relativeTime(live ? job.startedAt : job.finishedAt ?? job.startedAt)}`}</T>
     </View>
     <Ionicons name="chevron-forward" size={15} color={colors.muted} />
@@ -90,7 +90,7 @@ function JobDetail({ sessionId, job, onBack }: { sessionId: string; job: JobView
   }, [client, sessionId, job.id]);
   const kill = async () => {
     if (!client) return;
-    if (!(await dialog.confirm({ title: 'Stop This Job?', message: job.label || job.id, confirm: 'Stop', destructive: true, icon: 'stop-circle-outline' }))) return;
+    if (!(await dialog.confirm({ title: 'Stop This Job?', message: shortLabel(job.label, job.id, 140), confirm: 'Stop', destructive: true, icon: 'stop-circle-outline' }))) return;
     setStopping(true); setError('');
     try { await client.request('job/kill', { sessionId, jobId: job.id }); } catch (e) { setError(errorMessage(e)); } finally { setStopping(false); }
   };
@@ -103,6 +103,7 @@ function JobDetail({ sessionId, job, onBack }: { sessionId: string; job: JobView
       <T style="caption1" color={isLive(job) ? colors.live : 'secondary'} styleOverride={{ flex: 1 }} align="right" numberOfLines={1}>{jobStatusText(job)}</T>
       {text ? <CopyButton value={text} label="Copy output" /> : null}
     </View>
+    {job.label && job.label.trim() !== shortLabel(job.label, job.id).replace(/ …$/, '') ? <CommandBlock text={job.label} /> : null}
     <ScrollView ref={scroll} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })} style={{ flex: 1, borderRadius: 10, backgroundColor: colors.dark ? '#000' : colors.grouped }} contentContainerStyle={{ padding: 10 }}>
       <T selectable styleOverride={{ fontFamily: MONO, fontSize: 11.5, lineHeight: 16 }} color="secondary">{text || (isLive(job) ? 'Waiting for output…' : 'No output.')}</T>
     </ScrollView>
@@ -111,5 +112,24 @@ function JobDetail({ sessionId, job, onBack }: { sessionId: string; job: JobView
       style={({ pressed }) => ({ height: 44, borderRadius: 11, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.danger, opacity: stopping || job.status === 'stopping' ? 0.5 : pressed ? 0.7 : 1 })}>
       <Ionicons name="stop-circle-outline" size={18} color={colors.danger} /><T style="footnote" weight="600" color="danger">{job.status === 'stopping' || stopping ? 'Stopping…' : 'Stop Job'}</T>
     </Pressable> : null}
+  </View>;
+}
+
+/** The job's full command, collapsed to 2 lines; tap to expand (scrolls when long) and copy it. */
+function CommandBlock({ text }: { text: string }) {
+  const { colors } = useApp(); const [open, setOpen] = useState(false);
+  return <View style={{ borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.panel, maxHeight: open ? 220 : undefined }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 10, paddingRight: 4, paddingTop: 4 }}>
+      <T style="caption2" color="secondary" weight="600" styleOverride={{ flex: 1, letterSpacing: 0.4 }}>COMMAND</T>
+      <CopyButton value={text} label="Copy command" />
+    </View>
+    {open ? <ScrollView nestedScrollEnabled contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 8 }}>
+        <T selectable styleOverride={{ fontFamily: MONO, fontSize: 11.5, lineHeight: 16 }} color="secondary">{text}</T>
+      </ScrollView>
+      : <Pressable accessibilityRole="button" accessibilityLabel="Show full command" onPress={() => setOpen(true)} style={{ paddingHorizontal: 10, paddingBottom: 8 }}>
+          <T numberOfLines={2} styleOverride={{ fontFamily: MONO, fontSize: 11.5, lineHeight: 16 }} color="secondary">{text}</T>
+          <T style="caption2" color="tertiary">Tap to show all</T>
+        </Pressable>}
+    {open ? <Pressable accessibilityRole="button" accessibilityLabel="Collapse command" onPress={() => setOpen(false)} style={{ paddingHorizontal: 10, paddingBottom: 6 }}><T style="caption2" color="tertiary">Show less</T></Pressable> : null}
   </View>;
 }
