@@ -22,8 +22,13 @@ export async function listCaches(): Promise<{ url: string; bytes: number }[]> { 
 async function listCachesBase(): Promise<{ url: string; bytes: number }[]> { return (await db()).getAllAsync<{ url: string; bytes: number }>(`SELECT url,SUM(bytes) AS bytes FROM (SELECT url,length(CAST(data AS BLOB)) AS bytes FROM harness_cache UNION ALL SELECT url,length(CAST(data AS BLOB)) AS bytes FROM history_cache UNION ALL SELECT url,length(CAST(data AS BLOB)) AS bytes FROM directory_cache) GROUP BY url`); }
 export async function readHistory(url: string, sessionId: string): Promise<CachedHistory | null> { const row = await (await db()).getFirstAsync<{ data: string }>('SELECT data FROM history_cache WHERE url=? AND session_id=?', url, sessionId); return row ? JSON.parse(row.data) : null; }
 export async function writeHistory(url: string, sessionId: string, value: CachedHistory, epoch = cacheEpoch(url)) { if (epoch !== cacheEpoch(url)) return; const d = await db(); if (epoch !== cacheEpoch(url)) return; await d.runAsync('INSERT OR REPLACE INTO history_cache(url,session_id,data) VALUES (?,?,?)', url, sessionId, JSON.stringify(value)); }
-export async function clearCache(url: string) {
-  await clearEvents(url).catch(() => {}); await clearDraftsFor(url).catch(() => {}); await clearOutboxFor(url).catch(() => {});
+/**
+ * Clear what this device cached for a Harness. `keepUnsent` (used by the automatic size limit) keeps
+ * unsent drafts and the offline outbox: those are the user's own messages, not a rebuildable cache.
+ */
+export async function clearCache(url: string, { keepUnsent = false }: { keepUnsent?: boolean } = {}) {
+  await clearEvents(url).catch(() => {});
+  if (!keepUnsent) { await clearDraftsFor(url).catch(() => {}); await clearOutboxFor(url).catch(() => {}); }
   bumpCacheEpoch(url);
   const d = await db();
   await d.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM history_cache WHERE url=?', url); await tx.runAsync('DELETE FROM harness_cache WHERE url=?', url); await tx.runAsync('DELETE FROM directory_cache WHERE url=?', url); });

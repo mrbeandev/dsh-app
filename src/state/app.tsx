@@ -3,6 +3,7 @@ import { AppState as RNAppState, Platform, useColorScheme } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Network from 'expo-network';
 import { deviceIsOffline } from '../lib/connectivity';
+import { enforceCacheLimit } from '../lib/cacheLimit';
 import { errorMessage, HarnessClient, isTransportError } from '../lib/harness';
 import { drainOutbox, type OutboxItem } from '../lib/outbox';
 import { Connection, Frame, Session } from '../lib/protocol';
@@ -152,6 +153,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (RNAppState.currentState !== 'active' || !current.current) return;
       if (Date.now() - lastSyncAt.current >= 30_000) void resync().catch(() => {});
       void flushOutbox();
+      // Cache size limit (Settings › Storage): checked at most once a minute. After a purge the current
+      // session list is written straight back so the workspace screen keeps working offline.
+      void enforceCacheLimit({ onPurged: () => { const c = current.current; if (c) void writeCatalog({ url: c.connection.url, ...catalog.current, savedAt: Date.now() }).catch(() => {}); } }).catch(() => {});
     };
     const t = setInterval(tick, 10_000);
     const sub = RNAppState.addEventListener('change', s => { if (s === 'active') tick(); });
