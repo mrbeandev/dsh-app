@@ -10,6 +10,7 @@ import type { ImportCategory, ImportItem } from '../lib/imports';
 import { useModelLabel } from '../lib/modelNames';
 import { AttachmentTray } from './AttachmentTray';
 import type { ModelChoice } from './ModelPicker';
+import type * as DocumentPicker from 'expo-document-picker';
 import { diagnostic } from '../lib/diagnostics';
 import { useLayoutDiagnostics } from '../lib/useLayoutDiagnostics';
 
@@ -20,7 +21,7 @@ import { useLayoutDiagnostics } from '../lib/useLayoutDiagnostics';
 /** Toolbar targets grow sideways/downwards only, never up into the text field above them. */
 const DOWN_SLOP = { top: 0, bottom: 8, left: 4, right: 4 };
 
-export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, running, busy, disabled, offline = false, imports = [], onImport, onRemoveImport, onRetryImport }: { sessionId: string; draft: string; onChange: (v: string) => void; onSend: (mode?: 'queue' | 'steer') => void; onStop: () => void; running: boolean; busy: boolean; disabled: boolean; offline?: boolean; imports?: ImportItem[]; onImport?: (category: ImportCategory) => void; onRemoveImport?: (id: string) => void; onRetryImport?: (id: string) => void }) {
+export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, running, busy, disabled, offline = false, imports = [], onImport, onAttachMedia, onRemoveImport, onRetryImport }: { sessionId: string; draft: string; onChange: (v: string) => void; onSend: (mode?: 'queue' | 'steer') => void; onStop: () => void; running: boolean; busy: boolean; disabled: boolean; offline?: boolean; imports?: ImportItem[]; onImport?: (category: ImportCategory) => void; onAttachMedia?: (assets: DocumentPicker.DocumentPickerAsset[]) => void; onRemoveImport?: (id: string) => void; onRetryImport?: (id: string) => void }) {
   const { colors, sessions, client } = useApp(); const [picker, setPicker] = useState(false); const [chosen, setChosen] = useState<ModelChoice | null>(null);
   const diagnosticRef = useLayoutDiagnostics('composer.bounds');
   const selection = sessions.find(s => s.sessionId === sessionId)?.projections?.values.modelSelection as any;
@@ -80,7 +81,7 @@ export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, runni
       </Glass>
       {offline && (draft.trim() || imports.length) ? <T style="caption2" color="tertiary" styleOverride={{ marginLeft: 12, marginTop: 4 }}>Offline · Send keeps it on this phone and delivers it when you reconnect</T> : running && draft.trim() ? <T style="caption2" color="tertiary" styleOverride={{ marginLeft: 12, marginTop: 4 }}>Send queues after this turn · hold Send to steer now</T> : null}
     </View>
-    <ImportPicker visible={importOpen} onClose={() => setImportOpen(false)} onSelect={c => onImport?.(c)} />
+    <ImportPicker visible={importOpen} onClose={() => setImportOpen(false)} onSelect={c => onImport?.(c)} onAttachMedia={onAttachMedia} />
     <ModelPicker sessionId={sessionId} visible={picker} onClose={() => setPicker(false)} onSelected={setChosen} current={current} />
   </>;
 }

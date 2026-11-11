@@ -93,12 +93,11 @@ export function useImports(client: HarnessClient | null, sessionId: string, repo
     void saveDraftFiles(harnessUrl, sessionId, list).catch(() => {});
   }, [items, harnessUrl, sessionId, ready]);
 
-  const pick = async (category: ImportCategory) => {
-    if (!client) return;
+  /** Attach already-chosen local files (document picker or the in-app gallery) through the same pipeline. */
+  const addAssets = async (assets: DocumentPicker.DocumentPickerAsset[]) => {
+    if (!client || !assets.length) return;
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: [...category.types], multiple: true, copyToCacheDirectory: true });
-      if (result.canceled) return;
-      const fresh = await Promise.all(result.assets.map(async picked => {
+      const fresh = await Promise.all(assets.map(async picked => {
         const id = randomUUID();
         const asset = { ...picked, uri: await keepCopy(picked, id) };
         sources.current.set(id, asset);
@@ -108,9 +107,16 @@ export function useImports(client: HarnessClient | null, sessionId: string, repo
       for (const item of fresh) start(item.id, sources.current.get(item.id)!);
     } catch (e) { report(errorMessage(e)); }
   };
+  const pick = async (category: ImportCategory) => {
+    if (!client) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: [...category.types], multiple: true, copyToCacheDirectory: true });
+      if (!result.canceled) await addAssets(result.assets);
+    } catch (e) { report(errorMessage(e)); }
+  };
   const remove = (id: string) => { tasks.current.get(id)?.abort(); const src = sources.current.get(id); sources.current.delete(id); if (src) dropCopy(src.uri); setItems(old => old.filter(i => i.id !== id)); };
   const retry = (id: string) => { const source = sources.current.get(id); if (source) start(id, source); };
   /** After the Harness accepted a message: delete the kept copies of the attachments it carried. */
   const sent = (sentItems: ImportItem[]) => { for (const i of sentItems) { sources.current.delete(i.id); dropCopy(i.uri); } };
-  return { items, setItems, pick, remove, retry, sent };
+  return { items, setItems, pick, addAssets, remove, retry, sent };
 }

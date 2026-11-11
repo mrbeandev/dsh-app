@@ -3,7 +3,7 @@
     "name": "DSH Mobile",
     "scheme": "dsh-app",
     "slug": "dsh-app",
-    "version": "12.9.0",
+    "version": "12.10.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -26,7 +26,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 120900,
+      "versionCode": 121000,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
@@ -68,7 +68,19 @@
           "color": "#89baff"
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow DSH Mobile to show your recent photos and videos so you can attach them to a message.",
+          "savePhotosPermission": false,
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": [
+            "photo",
+            "video"
+          ]
+        }
+      ]
     ]
   }
 }
