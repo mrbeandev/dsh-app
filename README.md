@@ -2,7 +2,7 @@
 
 <h1 align="center">DSH Mobile</h1>
 
-<p align="center">A mobile client for <a href="https://github.com/deepseek-ai">DeepSeek Harness</a> (DSH): chat with your agents, watch them work live, and manage workspaces, files and terminals from your phone.</p>
+<p align="center">A native Android client for <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> (DSH): chat with your agents, watch them work live, and manage workspaces, files and terminals from your phone. <b>Nothing to install on the Harness</b> — it uses the same API as the web UI.</p>
 
 <p align="center">
   <a href="https://github.com/mrbeandev/dsh-app/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/mrbeandev/dsh-app?label=download&color=4f8cff"></a>
@@ -12,6 +12,10 @@
 </p>
 
 <p align="center">
+  <img src=".github/assets/demo.webp" width="300" alt="Demo: open a session, send a message, and watch the agent work live">
+  <br><sub>35 s demo against a real Harness · <a href=".github/assets/demo.mp4">full-quality MP4</a></sub>
+</p>
+<p align="center">
   <img src=".github/assets/showcase-hero.webp" width="900" alt="DSH Mobile: workspace tree with subagent sessions and live tool calls">
 </p>
 <p align="center">
@@ -19,6 +23,27 @@
 </p>
 
 > Independent community project. Not affiliated with or endorsed by DeepSeek or T3.
+
+## Quick start
+
+1. **Start the Harness** where your projects live: `dsh web --no-open`. It prints a URL with a `token=…`.
+2. **Install the app**: download the latest `.apk` from [Releases](https://github.com/mrbeandev/dsh-app/releases/latest) on your phone and open it.
+3. **Connect**: enter the Harness address (e.g. `http://192.168.1.20:3080`, or `http://127.0.0.1:3080` for Termux on the same phone) and the token. Your workspaces and sessions appear straight away.
+
+Using a tunnel or your own domain? See [Connecting through a tunnel](#connecting-through-a-tunnel-or-your-own-domain).
+
+## How it differs from other Harness phone apps
+
+There are several good ways to use the Harness from a phone. In short:
+
+| | DSH Mobile (this app) | Runs the Harness on the phone (e.g. dsh-Go) | Mirrors the web UI (e.g. dsh-pocket, PWAs) |
+|---|---|---|---|
+| Where agents run | Your existing Harness (desktop, server, or Termux) | On the phone | Your existing Harness |
+| Server-side setup | **None** — stock web API + launch token | n/a | Pairing page / QR or plugin |
+| Interface | Native app | Native shell | Web UI in a browser view |
+| Works offline | Cached sessions; messages typed offline send on reconnect | — | Needs a connection |
+
+Pick this one if you already run the Harness somewhere and want a phone app to follow, answer and steer it.
 
 ## Install
 
@@ -70,23 +95,30 @@ Saving `cordis.patch.yml` while `dsh web` is running applies the change straight
 ## Features
 
 **Sessions and chat**
-- Workspace tree sorted by last activity, live dot on working threads, pin and archive.
+- Workspace tree sorted by last activity, a status marker per session (working / needs you / finished unseen), pin and archive. Subagents shown as a tree under their parent.
+- Search session titles and message contents.
 - Live streaming replies with Markdown, code blocks (copy), quotes and inline code.
 - Tool calls, reasoning, context and compaction shown as compact rows; finished turns fold into *Completed in 4m 5s*.
 - Approvals, questions and **plan review** (approve or keep planning with feedback).
+- **Queue or steer** messages while the agent works; edit, remove or take back queued and steering messages.
+- Choose the **model and reasoning level**; attach photos from an in-app gallery, PDFs, documents and other files.
+- Long-press a reply to copy it, select part of it, or copy it with every tool call. Links and file paths in replies are tappable.
+- Messages typed **offline** wait on the phone and send in order when you reconnect; drafts and attachments are kept per session.
 - Goal and to-do strip above the composer (pause, resume, edit, clear).
 - **Rewind to any earlier message** of yours and resend it (app feature; no Harness plugin needed).
 - **Pinch** the chat with two fingers (or tap the list icon) to browse every prompt with its date and jump to it.
 - Opens at the latest message; older history loads as you scroll up.
 
-**Thread details** — model, persona and access mode; context usage, token usage (cache hit, input, output) and session statistics (turns, steps, LLM/tool time, TTFT, TPS); copy buttons for IDs and paths.
+**Background jobs and reminders** — see commands an agent left running (live output, stop) and the reminders it scheduled (rename, edit, delete).
+
+**Session details** — model, persona and access mode; context usage, token usage (cache hit, input, output) and session statistics (turns, steps, LLM/tool time, TTFT, TPS); copy buttons for IDs and paths.
 
 **Workspace tools**
-- **Files** — sort by name, date or size; full-screen previews for images, PDFs, spreadsheets/CSV and text; download any file to your phone (byte-exact, any size), then open or share it.
+- **Files** — sort by name, date or size; full-screen previews for images (pinch to zoom), PDFs, spreadsheets/CSV and text; play videos and audio in the app; download any file to your phone, then open or share it. Downloads are remembered.
 - **Terminal** — a real terminal emulator (xterm.js): colours, full-screen programs like `top`/`vim`, a key bar (Ctrl, Esc, Tab, arrows) and adjustable font size.
 - Add, rename and remove workspaces; new threads with access mode and persona.
 
-**Built for mobile** — per-Harness cache (SQLite) for instant start and offline reading; only the open thread streams live. Native [Solid Glass](https://github.com/deeplethe/solid-glass) styling in light and dark.
+**Built for mobile** — per-Harness cache (SQLite) for instant start and offline reading, with an optional size limit; only the open thread streams live; a compact message box that expands when you type. Native [Solid Glass](https://github.com/deeplethe/solid-glass) styling in light and dark.
 
 **In-app updates** — checks GitHub Releases in the background, downloads the new APK with progress, and hands it to Android's installer. You confirm the install.
 

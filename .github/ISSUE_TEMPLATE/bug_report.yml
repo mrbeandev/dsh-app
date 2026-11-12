@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in the app doesn't work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! The more of this you fill in, the faster it gets fixed.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. Screenshots help a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a session…
+        2. Tap…
+        3. See…
+  - type: input
+    id: app
+    attributes:
+      label: App version
+      description: Settings › App Updates shows it (e.g. 12.10.0).
+    validations:
+      required: true
+  - type: input
+    id: harness
+    attributes:
+      label: Harness version
+      description: Output of `dsh --version` (e.g. 0.2.1-rc.5).
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How does the app connect?
+      options:
+        - Same phone (Termux, 127.0.0.1)
+        - LAN address
+        - Tunnel / reverse proxy (Cloudflare, ngrok, Tailscale, nginx…)
+        - Other
+  - type: input
+    id: device
+    attributes:
+      label: Phone and Android version
+      placeholder: e.g. Pixel 8, Android 15
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (optional)
+      description: Settings › Beta diagnostics › Export creates a file with timings and error codes (no messages, tokens or file contents). Attach it here if it's related.

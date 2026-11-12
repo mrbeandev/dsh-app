@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: DeepSeek Harness itself
+    url: https://github.com/deepseek-ai/deepseek-harness/issues
+    about: Problems with the Harness (agents, models, the web UI) rather than this app belong there.
