@@ -64,7 +64,7 @@ Two fields, nothing else:
 
 The app exchanges the token for a session cookie, exactly like the DSH Web UI. Tokens are stored in the device keystore. Use HTTPS for anything that leaves your network.
 
-Works with DeepSeek Harness **0.2.0** and **0.2.1** (tested up to `0.2.1-rc.5`).
+Works with DeepSeek Harness **0.2.0**, **0.2.1** and **0.2.2** (tested up to `0.2.2-rc.3`).
 
 ### Connecting through a tunnel or your own domain
 
