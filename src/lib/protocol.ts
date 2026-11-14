@@ -96,7 +96,7 @@ const HIDDEN = new Set(['turn/start', 'step/start', 'step/end', 'request/header'
   'job/registered', 'job/settled', 'llm/retry-started', 'session/title-llm-request', 'web/deepseek-search-llm-request',
   'session-log-deepseek/delivery-accepted', 'feedback/message-delete', 'feedback/message-put', 'feedback/record',
   'hook/invoked', 'hook/result', 'image/offload', 'agent-preset/selected', 'subagent/catalog', 'subagent/descriptor',
-  'subagent/model-selection-policy', 'team/member', 'team/message/queued', 'team/message/delivered', 'team/task',
+  'subagent/model-selection-policy', 'team/member', 'team/mode', 'team/message/queued', 'team/message/delivered', 'team/task',
   'tool-workflow/agent-start', 'tool-workflow/agent-end', 'tool-workflow/run-start', 'tool-workflow/run-end', 'workspace/changes']);
 
 /** How each user/message `source.kind` is presented. Unknown non-user kinds fall back to a generic context row. */
