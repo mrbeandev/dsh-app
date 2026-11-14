@@ -29,3 +29,15 @@ describe('subagent threads (Web UI parity)', () => {
     expect(historyAddress(root, 'root')).toEqual({ kind: 'session', sessionId: 'root' });
   });
 });
+
+describe('thread working status', () => {
+  const s = (id: string, extra: Record<string, unknown> = {}) => ({ sessionId: id, updatedAt: 1, ...extra }) as unknown as import('./protocol').Session;
+  it('counts a thread as working when only a nested subagent is working', async () => {
+    const { childIndex, threadWorking } = await import('./subagents');
+    const root = s('root'); const child = s('child', { origin: 'subagent', parentSessionId: 'root' }); const grand = s('grand', { origin: 'subagent', parentSessionId: 'child', running: true });
+    const all = [root, child, grand]; const byId = new Map(all.map(x => [x.sessionId, x]));
+    expect(threadWorking(root, childIndex(all), byId)).toBe(true);
+    const idle = [root, child, s('grand', { origin: 'subagent', parentSessionId: 'child' })];
+    expect(threadWorking(root, childIndex(idle), new Map(idle.map(x => [x.sessionId, x])))).toBe(false);
+  });
+});

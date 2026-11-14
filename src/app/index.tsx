@@ -5,7 +5,8 @@ import { UpdateBanner } from '../components/UpdateCard';
 import { SyncStatus } from '../components/SyncStatus';
 import { useUnseen } from '../state/unseen';
 import { SubagentBranches, SubagentToggle } from '../components/SubagentTree';
-import { childIndex, subagentTree } from '../lib/subagents';
+import { childIndex, subagentTree, threadWorking } from '../lib/subagents';
+import type { Session } from '../lib/protocol';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,7 +43,8 @@ export default function Home() {
   const byId = useMemo(() => new Map(sessions.map(x => [x.sessionId, x])), [sessions]);
   const { unseen } = useUnseen();
   const live = status === 'connected';
-  const rows = useMemo(() => sessions.filter(x => isListedSession(x) && !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || (live && x.running))), [sessions, archived, query, filter, live]);
+  const working = useCallback((x: Session) => live && threadWorking(x, subIndex, byId), [live, subIndex, byId]);
+  const rows = useMemo(() => sessions.filter(x => isListedSession(x) && !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || working(x))), [sessions, archived, query, filter, working]);
   // Message-content matches from the Harness, minus sessions already matched by title/folder above.
   const content = useContentSearch(client, query);
   const contentHits = useMemo(() => { const shownIds = new Set(rows.map(r => r.sessionId)); return content.hits.filter(h => !shownIds.has(h.sessionId) && !archived.includes(h.sessionId)).slice(0, 8); }, [content.hits, rows, archived]);
@@ -55,7 +57,7 @@ export default function Home() {
     const limit = shown[g.id] ?? SESSIONS_SHOWN;
     return { ...g, data: g.sessions.slice(0, limit), more: Math.max(0, g.sessions.length - limit) };
   }), [groups, isOpen, query, shown]);
-  const workingCount = sessions.filter(x => isListedSession(x) && live && x.running).length;
+  const workingCount = sessions.filter(x => isListedSession(x) && working(x)).length;
   const toggle = (id: string) => setOpenState(p => ({ ...p, [id]: !isOpen(id) }));
   const showMore = (id: string) => setShown(p => ({ ...p, [id]: (p[id] ?? SESSIONS_SHOWN) + SESSIONS_PAGE }));
   // Pull-to-refresh = the same full sync as the "Synced …" button: reconnect the live socket if it dropped,
@@ -138,26 +140,26 @@ export default function Home() {
             <IconButton icon="information-circle-outline" size={18} tint={colors.muted} label="What the session markers mean" onPress={() => void dialog.alert('Session markers', '●  Green dot with a halo — the agent is working now.\n●  Amber dot — the agent is waiting for your answer.\n○  Green ring — finished while you were away; you haven’t opened it yet.\n\n⑂ N on the right — how many subagents the session has. It turns green while any of them is working.')} />
           </View>
         </View></>}
-        renderSectionHeader={({ section }) => { const open = isOpen(section.id); const runningHere = section.sessions.some(x => live && x.running); return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 4, marginHorizontal: 12, marginTop: 7, marginBottom: open ? 3 : 0, borderRadius: 11, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, boxShadow: `inset 0 1px 0 ${colors.rim}` }}>
+        renderSectionHeader={({ section }) => { const open = isOpen(section.id); const runningHere = section.sessions.some(working); return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 4, marginHorizontal: 12, marginTop: 7, marginBottom: open ? 3 : 0, borderRadius: 11, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, boxShadow: `inset 0 1px 0 ${colors.rim}` }}>
           <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} sessions`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 32, paddingHorizontal: 5, borderRadius: 8, backgroundColor: pressed ? colors.state : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
             <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={colors.muted} style={{ width: 12 }} />
             <Ionicons name={open ? 'folder-open-outline' : 'folder-outline'} size={14} color={colors.muted} />
             <T style="subhead" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{section.title}</T>
             <T style="caption1" color="secondary">{section.sessions.length}</T>
-            {!open && runningHere ? <View accessibilityLabel="Has a live session" style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live }} /> : null}
+            {runningHere ? <View accessibilityLabel="Has a working session" style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live }} /> : null}
           </Pressable>
           <WorkspaceAction icon="add" label={`New session in ${section.title}`} disabled={!client || !live} onPress={() => router.push({ pathname: '/new', params: { cwd: section.path } })} />
           <WorkspaceAction icon="ellipsis-horizontal" label={`Options for ${section.title}`} onPress={() => workspaceMenu(section)} />
         </View>; }}
         renderSectionFooter={({ section }) => section.more ? <Pressable accessibilityRole="button" accessibilityLabel={`Show ${Math.min(SESSIONS_PAGE, section.more)} more sessions in ${section.title}`} onPress={() => showMore(section.id)} style={({ pressed }) => ({ marginLeft: 29, paddingLeft: 26, paddingVertical: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}><Ionicons name="chevron-down" size={12} color={colors.primary} /><T style="caption1" color="accent">{`Show ${Math.min(SESSIONS_PAGE, section.more)} more · ${section.more} hidden`}</T></Pressable> : null}
         renderItem={({ item, index, section }) => {
-          const active = item.running && live; const attention = pending.some(p => p.agentId === item.sessionId);
+          const self = !!item.running && live; const active = working(item); const attention = pending.some(p => p.agentId === item.sessionId);
           const finished = !active && !attention && unseen.has(item.sessionId);
           const tree = subagentTree(item, subIndex, byId);
           return <View style={{ marginLeft: 29, paddingLeft: 15, marginRight: 12, paddingBottom: 3 }}>
             <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: index === section.data.length - 1 && !section.more ? 19 : 0, width: 1, backgroundColor: colors.border }} />
             <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 16, width: 15, height: 1, backgroundColor: colors.border }} />
-            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${active ? ', working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: pressed ? colors.state : colors.panel })}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${self ? ', working' : active ? ', a subagent is working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: pressed ? colors.state : colors.panel })}>
               <Ionicons name="chatbubble-outline" size={13} color={colors.tertiary} />
               <StatusMark kind={attention ? 'input' : active ? 'working' : finished ? 'unseen' : 'none'} />
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>

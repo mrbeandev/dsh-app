@@ -51,6 +51,8 @@ export function subagentTree(root: Session, index: Map<string, Session[]>, byId:
 
 export const countTree = (nodes: SubagentNode[]): number => nodes.reduce((n, x) => n + 1 + countTree(x.children), 0);
 export const anyRunning = (nodes: SubagentNode[]): boolean => nodes.some(x => x.session.running || anyRunning(x.children));
+/** A thread counts as working when it or any of its subagents (any depth) is working. */
+export const threadWorking = (root: Session, index: Map<string, Session[]>, byId: Map<string, Session>) => !!root.running || anyRunning(subagentTree(root, index, byId));
 
 /** History address for a thread: subagent children need the subagent address form. */
 export function historyAddress(session: Session | undefined, sessionId: string, parent?: Session) {

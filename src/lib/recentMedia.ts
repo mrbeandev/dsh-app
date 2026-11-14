@@ -4,7 +4,9 @@ import { Asset, AssetField, getPermissionsAsync, MediaType, presentPermissionsPi
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 /**
- * Recent photos and videos for the in-app attachment gallery (newest first, paged). Uses the media
+ * Recent photos and videos for the in-app attachment gallery (newest first, paged). Sorted by the file's
+ * modification date: Android's "date taken" comes from camera EXIF, so screenshots and saved images have
+ * none and would sink to the end of the list. Uses the media
  * store's lightweight metadata (no file decoding) so the grid opens fast; a tile's file URI is
  * resolved only when it's picked. Only photo + video access is requested.
  */
@@ -28,7 +30,7 @@ export function useRecentMedia(active: boolean) {
     setLoading(true);
     try {
       const rows = await new Query().within(AssetField.MEDIA_TYPE, [MediaType.IMAGE, MediaType.VIDEO])
-        .orderBy({ key: AssetField.CREATION_TIME, ascending: false }).offset(offset).limit(PAGE).exeForMetadata();
+        .orderBy({ key: AssetField.MODIFICATION_TIME, ascending: false }).offset(offset).limit(PAGE).exeForMetadata();
       const page = rows.map(r => ({ id: r.id, video: r.mediaType === MediaType.VIDEO, durationMs: r.duration ?? null, filename: r.filename ?? null }));
       setItems(prev => offset === 0 ? page : [...prev, ...page.filter(p => !prev.some(q => q.id === p.id))]);
       setDone(page.length < PAGE);
