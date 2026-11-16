@@ -67,12 +67,14 @@ function reasoningText(value: unknown): string {
  * system prompt, turn failures, and command rows.
  */
 /** An image attachment returned by a tool (e.g. Read image); bytes come from session/attachment. */
-export type ImageRef = { attachmentId: string; mediaType: string; width: number; height: number; name?: string };
+export type ImageRef = { attachmentId: string; mediaType: string; width: number; height: number; name?: string;
+  /** The Harness's own reference, sent back as-is to fetch the bytes (0.2.2+ `session/attachment` wants the whole ref). */
+  ref?: Record<string, unknown> };
 
 /** Image blocks inside a message's content. */
 export function imagesOf(content: unknown): ImageRef[] {
   if (!Array.isArray(content)) return [];
-  return content.filter((b: any) => b?.type === 'image' && b.attachment?.attachmentId).map((b: any) => ({ attachmentId: String(b.attachment.attachmentId), mediaType: String(b.attachment.mediaType ?? 'image/png'), width: Number(b.attachment.width) || 0, height: Number(b.attachment.height) || 0, name: b.attachment.name }));
+  return content.filter((b: any) => b?.type === 'image' && b.attachment?.attachmentId).map((b: any) => ({ attachmentId: String(b.attachment.attachmentId), mediaType: String(b.attachment.mediaType ?? 'image/png'), width: Number(b.attachment.width) || 0, height: Number(b.attachment.height) || 0, name: b.attachment.name, ref: b.attachment }));
 }
 
 export type TranscriptRow =

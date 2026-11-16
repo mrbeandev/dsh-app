@@ -6,6 +6,7 @@ import { ModelPicker } from './ModelPicker';
 import { Glass } from './Glass';
 import { T, type } from './ui';
 import { ImportPicker } from './ImportPicker';
+import { sendActions, useSendMode } from '../lib/sendPreference';
 import type { ImportCategory, ImportItem } from '../lib/imports';
 import { useModelLabel } from '../lib/modelNames';
 import { AttachmentTray } from './AttachmentTray';
@@ -22,7 +23,7 @@ import { useLayoutDiagnostics } from '../lib/useLayoutDiagnostics';
 const DOWN_SLOP = { top: 0, bottom: 8, left: 4, right: 4 };
 
 export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, running, busy, disabled, offline = false, imports = [], onImport, onAttachMedia, onRemoveImport, onRetryImport }: { sessionId: string; draft: string; onChange: (v: string) => void; onSend: (mode?: 'queue' | 'steer') => void; onStop: () => void; running: boolean; busy: boolean; disabled: boolean; offline?: boolean; imports?: ImportItem[]; onImport?: (category: ImportCategory) => void; onAttachMedia?: (assets: DocumentPicker.DocumentPickerAsset[]) => void; onRemoveImport?: (id: string) => void; onRetryImport?: (id: string) => void }) {
-  const { colors, sessions, client } = useApp(); const [picker, setPicker] = useState(false); const [chosen, setChosen] = useState<ModelChoice | null>(null);
+  const { colors, sessions, client } = useApp(); const sendMode = useSendMode(); const [picker, setPicker] = useState(false); const [chosen, setChosen] = useState<ModelChoice | null>(null);
   const diagnosticRef = useLayoutDiagnostics('composer.bounds');
   const selection = sessions.find(s => s.sessionId === sessionId)?.projections?.values.modelSelection as any;
   const active = (selection?.next ?? selection?.lastUsed) as { provider?: string; model?: string; reasoningEffort?: string } | undefined;
@@ -47,7 +48,9 @@ export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, runni
     }, expanded ? 0 : 120);
     return () => clearTimeout(t);
   }, [expanded, reveal]);
-  const sendButton = <Pressable accessibilityRole="button" accessibilityLabel={stop ? 'Stop' : offline ? 'Save to send when online' : running ? 'Queue message' : 'Send'} accessibilityHint={running && !stop ? 'Long-press to steer: deliver at the agent’s next step instead of after this turn' : undefined} disabled={!canSend} onPress={stop ? onStop : () => onSend('queue')} onLongPress={running && !stop && !offline ? () => onSend('steer') : undefined} delayLongPress={350} hitSlop={DOWN_SLOP} style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend && !stop ? colors.text : pressed ? colors.state : 'transparent', opacity: pressed ? 0.7 : 1 })}><Ionicons name={stop ? 'stop' : 'arrow-up'} size={stop ? 12 : 19} color={canSend && !stop ? colors.bg : canSend ? colors.muted : colors.tertiary} /></Pressable>;
+  // While the agent works, a tap uses the preferred mode (Settings › Chat) and a long-press the other one.
+  const action = sendActions(sendMode);
+  const sendButton = <Pressable accessibilityRole="button" accessibilityLabel={stop ? 'Stop' : offline ? 'Save to send when online' : running ? (action.tap === 'steer' ? 'Steer message' : 'Queue message') : 'Send'} accessibilityHint={running && !stop ? (action.tap === 'steer' ? 'Long-press to queue: deliver after this turn instead of at the next step' : 'Long-press to steer: deliver at the agent’s next step instead of after this turn') : undefined} disabled={!canSend} onPress={stop ? onStop : () => onSend(running && !offline ? action.tap : 'queue')} onLongPress={running && !stop && !offline ? () => onSend(action.longPress) : undefined} delayLongPress={350} hitSlop={DOWN_SLOP} style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend && !stop ? colors.text : pressed ? colors.state : 'transparent', opacity: pressed ? 0.7 : 1 })}><Ionicons name={stop ? 'stop' : 'arrow-up'} size={stop ? 12 : 19} color={canSend && !stop ? colors.bg : canSend ? colors.muted : colors.tertiary} /></Pressable>;
   return <>
     <View ref={diagnosticRef} collapsable={false} onLayout={e => diagnostic('composer.layout', { ...e.nativeEvent.layout })} style={{ paddingHorizontal: 10, paddingTop: 6, paddingBottom: 4 }}>
       <AttachmentTray items={imports} onRemove={onRemoveImport} onRetry={onRetryImport} />

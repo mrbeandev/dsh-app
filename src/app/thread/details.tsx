@@ -5,7 +5,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../state/app';
-import { Button, ErrorNotice, Field, Header, Row, Screen, Section, T, s } from '../../components/ui';
+import { Button, ErrorNotice, Field, Header, IconButton, Row, Screen, Section, T, s } from '../../components/ui';
 import { ModelPicker } from '../../components/ModelPicker';
 import { Skeleton } from '../../components/Loader';
 import { errorMessage } from '../../lib/harness';
@@ -29,7 +29,16 @@ const EVENT_GROUPS: { label: string; match: (t: string) => boolean }[] = [
 type JournalSummary = { total: number; first: number; last: number; counts: { label: string; count: number }[]; other: number; savedAt?: number; bytes: number; complete?: boolean };
 
 export default function Details() {
-  const { id } = useLocalSearchParams<{ id: string }>(); const { client, sessions, refresh, savedUrl, colors, pinned } = useApp();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return <DetailsPane id={id} />;
+}
+
+/**
+ * Session Details. Full screen (route) on phones; on wide windows it is also shown as a third panel
+ * next to the chat (`panel`), with a close button instead of back and no screen header chrome.
+ */
+export function DetailsPane({ id, panel, onClose }: { id: string; panel?: boolean; onClose?: () => void }) {
+  const { client, sessions, refresh, savedUrl, colors, pinned } = useApp();
   const session = sessions.find(x => x.sessionId === id);
   const [title, setTitle] = useState(session ? sessionTitle(session) : ''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [picker, setPicker] = useState(false);
   // Live projections (fresh numbers); fall back to whatever the cached session list carried.
@@ -79,7 +88,8 @@ export default function Details() {
   const inboxCount = (values.inbox?.['next-turn']?.length ?? 0) + (values.inbox?.['next-step']?.length ?? 0);
   const todos: { content?: string; status?: string }[] = Array.isArray(values.todos?.items) ? values.todos.items : Array.isArray(values.todos) ? values.todos : [];
 
-  return <Screen readable><Header title="Session Details" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
+  const header = panel ? <Header title="Session Details" leading={<IconButton icon="close" size={18} label="Close details" onPress={() => onClose?.()} />} /> : <Header title="Session Details" back />;
+  return <Screen readable={!panel} edges={panel ? ['top'] : undefined}>{header}<ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
     <View style={{ gap: 10 }}><Field label="Title" value={title} onChangeText={setTitle} returnKeyType="done" onSubmitEditing={save} /><Button title="Save Title" secondary loading={busy} disabled={!client || !title.trim()} onPress={save} /></View>
 
     <Section header="Session">

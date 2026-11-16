@@ -76,7 +76,7 @@ describe('image results', () => {
       ev(2, 'tool/result', { message: { toolCallId: 'r', content: [{ type: 'text', text: 'x'.repeat(5000) }, img] } }),
     ];
     const tool = buildTranscript(events.map(liteEvent)).find(r => r.kind === 'tool') as any;
-    expect(tool.images).toEqual([{ attachmentId: 'att-1', mediaType: 'image/png', width: 1080, height: 2400, name: 'shot.png' }]);
+    expect(tool.images).toEqual([{ attachmentId: 'att-1', mediaType: 'image/png', width: 1080, height: 2400, name: 'shot.png', ref: img.attachment }]); // full ref kept: 0.2.2 needs it to fetch the bytes
     expect(tool.result).toBe('[Image]'); // the 5 KB text was dropped; only the image marker remains
   });
 });

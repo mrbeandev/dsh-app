@@ -22,3 +22,12 @@ describe('tablet layout breakpoints', () => {
     expect(seen).toEqual(['s1', 's2']); expect(getSplitSelection()).toBeNull();
   });
 });
+
+describe('settings in the split view', () => {
+  it('returns to the chat that was open before Settings', async () => {
+    const { SETTINGS_PANE, lastSplitChatId } = await import('./layout');
+    setSplitSelection('chat-a'); setSplitSelection(SETTINGS_PANE);
+    expect(getSplitSelection()).toBe(SETTINGS_PANE); expect(lastSplitChatId()).toBe('chat-a');
+    setSplitSelection(lastSplitChatId()); expect(getSplitSelection()).toBe('chat-a');
+  });
+});

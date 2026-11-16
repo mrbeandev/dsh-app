@@ -15,6 +15,10 @@ export const SPLIT_MIN = 900;
 export const READABLE_MAX = 720;
 /** Width of the session list pane in split view. */
 export const SIDEBAR_WIDTH = 320;
+/** Width of the Session Details panel shown beside the chat. */
+export const DETAILS_WIDTH = 340;
+/** Window width from which Session Details opens beside the chat instead of as a new screen. */
+export const DETAILS_SIDE_MIN = 900;
 /** Width of sheets shown as centred panels on large screens. */
 export const PANEL_MAX = 560;
 
@@ -42,18 +46,25 @@ export function readable(wide: boolean, max = READABLE_MAX) {
   return wide ? { width: '100%' as const, maxWidth: max, alignSelf: 'center' as const } : undefined;
 }
 
+/** Split-view right pane value that shows Settings instead of a chat. */
+export const SETTINGS_PANE = '@settings';
+
 /**
- * The session shown in the split view's chat pane. A tiny external store so the /thread/[id]
+ * The session shown in the split view's chat pane (or SETTINGS_PANE). A tiny external store so the /thread/[id]
  * route (deep links, notifications) can hand a session over to the home screen's pane.
  */
 let splitSelection: string | null = null;
 const splitListeners = new Set<() => void>();
+let lastSplitChat: string | null = null;
 export function setSplitSelection(id: string | null) {
   if (id === splitSelection) return;
   splitSelection = id;
+  if (id && id !== SETTINGS_PANE) lastSplitChat = id;
   for (const l of splitListeners) l();
 }
 export function getSplitSelection() { return splitSelection; }
+/** The chat that was open before Settings (Settings' close button returns to it). */
+export function lastSplitChatId() { return lastSplitChat; }
 export function subscribeSplitSelection(listener: () => void) { splitListeners.add(listener); return () => { splitListeners.delete(listener); }; }
 
 /**

@@ -21,7 +21,8 @@ import { relativeTime } from '../lib/time';
 import { useActionMenu } from '../components/ActionMenu';
 import { useDialog } from '../components/Dialog';
 import { ChatPane } from './thread/[id]';
-import { SIDEBAR_WIDTH, SplitPaneContext, getSplitSelection, setSplitSelection, subscribeSplitSelection, useLayout } from '../lib/layout';
+import { SETTINGS_PANE, SIDEBAR_WIDTH, SplitPaneContext, getSplitSelection, lastSplitChatId, setSplitSelection, subscribeSplitSelection, useLayout } from '../lib/layout';
+import { SettingsPane } from './settings';
 
 type Filter = 'All' | 'Working';
 
@@ -38,17 +39,18 @@ export default function Home() {
   if (!split) return <SessionList />;
   return <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.bg }}>
     <View style={{ width: SIDEBAR_WIDTH, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border }}>
-      <SessionList selectedId={selected} onOpen={id => setSplitSelection(id)} />
+      <SessionList selectedId={selected} onOpen={id => setSplitSelection(id)} onSettings={() => setSplitSelection(SETTINGS_PANE)} />
     </View>
     <View style={{ flex: 1 }}>
-      {selected ? <SplitPaneContext.Provider value={pane}><ChatPane key={selected} id={selected} harness={client?.connection.url ?? savedUrl ?? undefined} /></SplitPaneContext.Provider>
+      {selected === SETTINGS_PANE ? <SettingsPane panel onClose={() => setSplitSelection(lastSplitChatId())} />
+        : selected ? <SplitPaneContext.Provider value={pane}><ChatPane key={selected} id={selected} harness={client?.connection.url ?? savedUrl ?? undefined} /></SplitPaneContext.Provider>
         : <Screen edges={['top']}><Empty icon="chatbubbles-outline" title="Pick a Session" detail="Choose a session on the left, or start a new task." /></Screen>}
     </View>
   </View>;
 }
 
 /** Workspace tree + sessions. Full screen on phones; the left pane of the split view on tablets. */
-function SessionList({ selectedId, onOpen }: { selectedId?: string | null; onOpen?: (sessionId: string) => void } = {}) {
+function SessionList({ selectedId, onOpen, onSettings }: { selectedId?: string | null; onOpen?: (sessionId: string) => void; onSettings?: () => void } = {}) {
   const openThread = (id: string, harness?: string | null) => { if (onOpen) onOpen(id); else router.push({ pathname: '/thread/[id]', params: { id, harness: harness ?? undefined } }); };
   const { colors, sessions, workspaces, archived, pinned, client, status, deviceOffline, savedUrl, loading, refresh, resync, refreshWorkspace, pending } = useApp();
   const insets = useSafeAreaInsets();
@@ -205,7 +207,7 @@ function SessionList({ selectedId, onOpen }: { selectedId?: string | null; onOpe
       <GlassTargetProvider value={target}>
         <Header title="DSH" large leading={<View style={{ width: 8 }} />} logo={<View accessible accessibilityRole="header" accessibilityLabel="DSH" style={{ flexDirection: 'row', alignItems: 'center' }}><Image source={require('../../assets/brand/header-logo.png')} style={{ width: 34, height: 34 }} resizeMode="contain" /></View>}>
           {client ? <IconButton icon="folder-open-outline" size={19} label="Add workspace" onPress={() => router.push('/workspace-new')} /> : null}
-          <IconButton icon="settings-outline" size={19} label="Settings" onPress={() => router.push('/settings')} />
+          <IconButton icon="settings-outline" size={19} label="Settings" onPress={() => onSettings ? onSettings() : router.push('/settings')} />
         </Header>
       </GlassTargetProvider>
     </View>

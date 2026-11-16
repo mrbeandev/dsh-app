@@ -30,7 +30,8 @@ import { useNotifications } from '../../state/notifications';
 import { useUnseen } from '../../state/unseen';
 import { ChatScrollContext } from '../../components/chatScroll';
 import { SwipeBack } from '../../components/SwipeBack';
-import { readable, setSplitSelection, useLayout, useSplitPane } from '../../lib/layout';
+import { DETAILS_SIDE_MIN, DETAILS_WIDTH, readable, setSplitSelection, useLayout, useSplitPane } from '../../lib/layout';
+import { DetailsPane } from './details';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage, isTransportError } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent, type TranscriptRow } from '../../lib/protocol';
@@ -64,7 +65,9 @@ export default function Thread() {
 
 /** The chat for one session. Rendered by the /thread/[id] route on phones and in the right pane of the split view on tablets. */
 export function ChatPane({ id, harness }: { id: string; harness?: string }) {
-  const pane = useSplitPane(); const embedded = !!pane?.embedded; const { wide } = useLayout();
+  const pane = useSplitPane(); const embedded = !!pane?.embedded; const { wide, width: winW } = useLayout();
+  // Wide windows: Session Details opens as a panel beside the chat instead of a new screen.
+  const detailsBeside = winW >= DETAILS_SIDE_MIN; const [detailsOpen, setDetailsOpen] = useState(false);
   const { client, colors, sessions, savedUrl, pending, refresh, status, deviceOffline } = useApp();
   const harnessUrl = harness ?? client?.connection.url ?? savedUrl;
   useFocusEffect(useCallback(() => { if (id && harnessUrl) void rememberSession(harnessUrl, id); }, [id, harnessUrl]));
@@ -460,7 +463,7 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
   const subtitle = [workspace, status === 'connected' ? (working ? 'Working…' : undefined) : 'Offline'].filter(Boolean).join(' · ');
   const toLatest = () => scrollToBottom();
   const goBack = useCallback(() => { if (embedded) return; if (router.canGoBack()) router.back(); else router.replace('/'); }, [embedded]);
-  return <SwipeBack onBack={goBack} enabled={!promptsOpen && !embedded}><Screen edges={['top', 'bottom']}>
+  const chat = <SwipeBack onBack={goBack} enabled={!promptsOpen && !embedded}><Screen edges={['top', 'bottom']}>
     <KeyboardAvoidingView onLayout={e => diagnostic('chat.layout', { ...e.nativeEvent.layout })} style={{ flex: 1 }} behavior="padding">
       <GlassTarget target={target}>
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
@@ -500,7 +503,7 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
             {outline.length ? <IconButton icon="list-outline" size={18} label="Prompts" onPress={() => setPromptsOpen(true)} /> : null}
             <IconButton icon="folder-open-outline" size={18} label="Files" onPress={() => router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd } })} />
             <IconButton icon="terminal-outline" size={18} label="Terminal" onPress={() => router.push({ pathname: '/terminal', params: { sessionId: id } })} />
-            <IconButton icon="ellipsis-horizontal" size={18} label="Session details" onPress={() => router.push({ pathname: '/thread/details', params: { id } })} />
+            <IconButton icon={detailsBeside && detailsOpen ? 'close' : 'ellipsis-horizontal'} size={18} label={detailsBeside && detailsOpen ? 'Hide session details' : 'Session details'} onPress={() => detailsBeside ? setDetailsOpen(o => !o) : router.push({ pathname: '/thread/details', params: { id } })} />
           </Header>
         </GlassTargetProvider>
       </View>
@@ -508,4 +511,11 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
     <SelectTextSheet text={selectText} onClose={() => setSelectText(null)} />
     <PromptIndex sessionId={id} outline={outline} visible={promptsOpen} onClose={() => setPromptsOpen(false)} onJump={e => void jumpTo(e)} />
   </Screen></SwipeBack>;
+  if (!(detailsBeside && detailsOpen)) return chat;
+  return <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.bg }}>
+    <View style={{ flex: 1 }}>{chat}</View>
+    <View style={{ width: DETAILS_WIDTH, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.border }}>
+      <DetailsPane id={id} panel onClose={() => setDetailsOpen(false)} />
+    </View>
+  </View>;
 }

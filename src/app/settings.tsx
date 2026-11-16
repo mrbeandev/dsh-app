@@ -4,15 +4,19 @@ import { useCallback, useState } from 'react';
 import { clearCache, formatBytes, listCaches } from '../lib/cache';
 import { CACHE_LIMIT_OPTIONS, enforceCacheLimit, getCacheLimitMb, limitLabel, setCacheLimitMb } from '../lib/cacheLimit';
 import { useActionMenu } from '../components/ActionMenu';
+import { setSendMode, useSendMode } from '../lib/sendPreference';
 import { useApp } from '../state/app';
 import { useDialog } from '../components/Dialog';
-import { Header, Row, Screen, Section, T, s } from '../components/ui';
+import { Header, IconButton, Row, Screen, Section, T, s } from '../components/ui';
 import { UpdateSection } from '../components/UpdateCard';
 import { NotificationSection } from '../components/NotificationSettings';
 import { DiagnosticSettings } from '../components/DiagnosticSettings';
 
 /** Settings as an iOS grouped-inset list (HIG › Lists and tables). */
-export default function Settings() {
+export default function Settings() { return <SettingsPane />; }
+
+/** Settings. Full screen (route) on phones; in the split view's right pane on wide windows (`panel`). */
+export function SettingsPane({ panel, onClose }: { panel?: boolean; onClose?: () => void } = {}) {
   const { colors, theme, setTheme, client, disconnect, status } = useApp();
   const dialog = useDialog();
   const [caches, setCaches] = useState<{ url: string; bytes: number }[]>([]);
@@ -20,6 +24,14 @@ export default function Settings() {
   const menu = useActionMenu();
   useFocusEffect(useCallback(() => { void listCaches().then(setCaches).catch(() => {}); void getCacheLimitMb().then(setLimit); }, []));
   const total = caches.reduce((sum, c) => sum + c.bytes, 0);
+  const sendMode = useSendMode();
+  const chooseSendMode = () => menu({
+    title: 'Send While Working', subtitle: 'What tapping Send does while the agent is still working. Long-press Send does the other one.',
+    actions: [
+      { label: 'Steer — deliver at the next step', icon: (sendMode === 'steer' ? 'checkmark-circle' : 'ellipse-outline') as 'checkmark-circle', onPress: () => void setSendMode('steer') },
+      { label: 'Queue — deliver after this turn', icon: (sendMode === 'queue' ? 'checkmark-circle' : 'ellipse-outline') as 'checkmark-circle', onPress: () => void setSendMode('queue') },
+    ],
+  });
   const chooseLimit = () => menu({
     title: 'Cache Limit', subtitle: 'When the cache grows past this, it is cleared and rebuilt from the Harness as you open chats. Unsent messages are kept.',
     actions: CACHE_LIMIT_OPTIONS.map(mb => ({ label: limitLabel(mb), icon: (mb === limit ? 'checkmark-circle' : 'ellipse-outline') as 'checkmark-circle', onPress: async () => {
@@ -34,10 +46,13 @@ export default function Settings() {
     try { await clearCache(url); setCaches(await listCaches()); } catch { await dialog.alert('Couldn’t Clear Cache', 'Please try again.', 'danger'); }
   };
   const host = client ? new URL(client.connection.url).host : '';
-  return <Screen readable><Header title="Settings" back /><ScrollView contentContainerStyle={s.body}>
+  return <Screen readable>{panel ? <Header title="Settings" leading={<IconButton icon="close" size={18} label="Close settings" onPress={() => onClose?.()} />} /> : <Header title="Settings" back />}<ScrollView contentContainerStyle={s.body}>
     <Section header="Harness">
       <Row icon="server-outline" title={host || 'Connect Harness'} subtitle={host ? (status === 'connected' ? 'Connected' : status[0].toUpperCase() + status.slice(1)) : 'URL and auth token'} onPress={() => router.push('/connect')} />
       {client ? <Row icon="log-out-outline" title="Disconnect" destructive chevron={false} onPress={() => void dialog.confirm({ title: 'Disconnect?', message: 'Your saved token is removed from this device. Cached chats stay until you clear them.', confirm: 'Disconnect', destructive: true, icon: 'log-out-outline' }).then(ok => { if (ok) void disconnect().then(() => router.replace('/')); })} /> : null}
+    </Section>
+    <Section header="Chat" footer={sendMode === 'steer' ? 'While the agent is working, Send steers: your message reaches it at its next step. Long-press Send to queue it for after the turn instead.' : 'While the agent is working, Send queues your message for after the current turn. Long-press Send to steer it in at the next step instead.'}>
+      <Row icon="paper-plane-outline" iconTint={colors.muted} title="Send While Working" value={sendMode === 'steer' ? 'Steer' : 'Queue'} onPress={chooseSendMode} />
     </Section>
     <Section header="Appearance" footer="System follows your device’s Light or Dark setting.">
       {(['system', 'light', 'dark'] as const).map(t => <Row key={t} title={t[0].toUpperCase() + t.slice(1)} selected={theme === t} chevron={false} onPress={() => setTheme(t)} />)}

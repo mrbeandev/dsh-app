@@ -2,12 +2,31 @@ import { useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import { useApp } from '../state/app';
 import type { ImageRef } from '../lib/protocol';
+import type { HarnessClient } from '../lib/harness';
 import { T } from './ui';
 import { Loading } from './Loader';
 import { ImageViewer } from './ImageViewer';
 
 /** Session image bytes (session/attachment → base64), cached in memory per attachment id. */
 const cache = new Map<string, string>();
+
+type AttachmentValue = { attachment: { mediaType: string }; data: string };
+/** Harnesses that only accept the 0.2.1 `{sessionId, attachmentId}` shape. */
+const legacyShape = new WeakSet<HarnessClient>();
+
+/**
+ * 0.2.2+: `session/attachment {request:{sessionId, attachment: ImageAttachmentRef}}` (the whole ref the
+ * Harness put in the message). 0.2.1: `{sessionId, attachmentId}`. Try the current shape first and
+ * remember a Harness that refuses it.
+ */
+export async function fetchAttachment(client: HarnessClient, sessionId: string, image: ImageRef): Promise<AttachmentValue> {
+  const ref = image.ref ?? { attachmentId: image.attachmentId, mediaType: image.mediaType, width: image.width, height: image.height, ...(image.name ? { name: image.name } : {}) };
+  if (!legacyShape.has(client)) {
+    try { return await client.request<AttachmentValue>('session/attachment', { sessionId, attachment: ref }); }
+    catch (e) { if (!/boundary validation|input-invalid|arguments-invalid|unexpected/i.test(String((e as Error)?.message ?? e))) throw e; legacyShape.add(client); }
+  }
+  return client.request<AttachmentValue>('session/attachment', { sessionId, attachmentId: image.attachmentId });
+}
 
 /**
  * Inline preview of an image a tool returned (Web UI parity: Read image shows the picture).
@@ -23,10 +42,11 @@ export function AttachmentImage({ sessionId, image }: { sessionId: string; image
   useEffect(() => {
     if (uri || !client) return;
     let active = true;
-    client.request<{ attachment: { mediaType: string }; data: string }>('session/attachment', { sessionId, attachmentId: image.attachmentId })
+    fetchAttachment(client, sessionId, image)
       .then(r => { const u = `data:${r.attachment?.mediaType ?? image.mediaType};base64,${r.data}`; cache.set(cacheKey, u); if (cache.size > 24) cache.delete(cache.keys().next().value!); if (active) setUri(u); })
       .catch(e => { if (active) setError(String(e?.message ?? e)); });
     return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch only when the attachment itself changes, not on every new `image` object
   }, [client, sessionId, image.attachmentId, image.mediaType, cacheKey, uri]);
   const ratio = image.width && image.height ? image.width / image.height : 16 / 10;
   const width = '70%';
