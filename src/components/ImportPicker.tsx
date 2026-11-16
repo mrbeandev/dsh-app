@@ -7,6 +7,7 @@ import { T } from './ui';
 import { Loading } from './Loader';
 import { IMPORT_CATEGORIES, type ImportCategory } from '../lib/imports';
 import { durationLabel, resolveMedia, useRecentMedia, type RecentMedia } from '../lib/recentMedia';
+import { PANEL_MAX, useLayout } from '../lib/layout';
 import type * as DocumentPicker from 'expo-document-picker';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -31,7 +32,9 @@ export function ImportPicker({ visible, onClose, onSelect, onAttachMedia }: { vi
   const media = useRecentMedia(visible && !!onAttachMedia);
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const cols = 4; const gap = 3; const size = Math.floor((width - 24 - gap * (cols - 1)) / cols);
+  // Grid fills the sheet: full width on phones (4 columns), the centred panel on tablets (5 columns).
+  const { wide } = useLayout(); const sheetW = wide ? Math.min(PANEL_MAX, width - 48) : width;
+  const cols = wide ? 5 : 4; const gap = 3; const size = Math.floor((sheetW - 24 - gap * (cols - 1)) / cols);
   const close = () => { setPicked([]); onClose(); };
   const openPicker = (id: ImportCategory['id']) => { const c = IMPORT_CATEGORIES.find(x => x.id === id); if (!c) return; close(); setTimeout(() => onSelect(c), 250); };
   const toggle = (m: RecentMedia) => setPicked(p => p.includes(m.id) ? p.filter(x => x !== m.id) : p.length >= MAX_PICK ? p : [...p, m.id]);
@@ -64,7 +67,7 @@ export function ImportPicker({ visible, onClose, onSelect, onAttachMedia }: { vi
 
   return <Sheet visible={visible} onClose={close} title="Attach" height={0.82}>
     {body || !onAttachMedia ? <ScrollView>{header}{body}</ScrollView>
-      : <FlatList data={media.items} keyExtractor={m => m.id} numColumns={cols} ListHeaderComponent={header}
+      : <FlatList key={`cols-${cols}`} data={media.items} keyExtractor={m => m.id} numColumns={cols} ListHeaderComponent={header}
           columnWrapperStyle={{ gap, paddingHorizontal: 12 }} contentContainerStyle={{ gap, paddingBottom: picked.length ? 80 : 20 }}
           onEndReached={media.more} onEndReachedThreshold={0.6} initialNumToRender={24} windowSize={7} removeClippedSubviews
           ListEmptyComponent={!media.loading ? <T style="footnote" color="secondary" align="center" styleOverride={{ padding: 20 }}>No photos or videos found.</T> : <Loading fill={false} size="md" />}

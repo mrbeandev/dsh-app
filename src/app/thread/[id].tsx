@@ -30,6 +30,7 @@ import { useNotifications } from '../../state/notifications';
 import { useUnseen } from '../../state/unseen';
 import { ChatScrollContext } from '../../components/chatScroll';
 import { SwipeBack } from '../../components/SwipeBack';
+import { readable, setSplitSelection, useLayout, useSplitPane } from '../../lib/layout';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { errorMessage, isTransportError } from '../../lib/harness';
 import { Frame, buildTranscript, foldTurns, sessionTitle, WireEvent, type TranscriptRow } from '../../lib/protocol';
@@ -52,7 +53,19 @@ import { diagnostic } from '../../lib/diagnostics';
 /** List anchoring (keeps your place as new messages arrive); paused while a row expands. */
 const MVCP = { minIndexForVisible: 0, autoscrollToTopThreshold: 80 } as const;
 export default function Thread() {
-  const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>(); const { client, colors, sessions, savedUrl, pending, refresh, status, deviceOffline } = useApp();
+  const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>();
+  // Tablet split view: the chat lives in the right pane of the home screen instead of its own route.
+  // Coming here (deep link, notification, phone-style push) on a wide window hands the session to it.
+  const { split } = useLayout();
+  useEffect(() => { if (split && id) { setSplitSelection(id); router.dismissTo('/'); } }, [split, id]);
+  if (split) return <Screen edges={['top']}><View /></Screen>;
+  return <ChatPane id={id} harness={harness} />;
+}
+
+/** The chat for one session. Rendered by the /thread/[id] route on phones and in the right pane of the split view on tablets. */
+export function ChatPane({ id, harness }: { id: string; harness?: string }) {
+  const pane = useSplitPane(); const embedded = !!pane?.embedded; const { wide } = useLayout();
+  const { client, colors, sessions, savedUrl, pending, refresh, status, deviceOffline } = useApp();
   const harnessUrl = harness ?? client?.connection.url ?? savedUrl;
   useFocusEffect(useCallback(() => { if (id && harnessUrl) void rememberSession(harnessUrl, id); }, [id, harnessUrl]));
   // Unsent text survives leaving the chat or closing the app; it's cleared only once Send/Steer succeeds.
@@ -210,12 +223,12 @@ export default function Thread() {
         try {
           const r = await rewindTo(client, { sessionId: id, targetSeq: seq, text: row.text, title: session ? sessionTitle(session) : undefined, running: running || !!session?.running, records });
           setPendingDraft(r.sessionId, r.draft); await refresh();
-          router.replace({ pathname: '/thread/[id]', params: { id: r.sessionId, harness: harnessUrl } });
+          if (pane) pane.select(r.sessionId); else router.replace({ pathname: '/thread/[id]', params: { id: r.sessionId, harness: harnessUrl } });
         } catch (e) { await dialog.alert('Couldn’t Rewind', errorMessage(e), 'danger'); }
       })(); } },
       { label: 'Copy Text', icon: 'copy-outline', onPress: () => { void Clipboard.setStringAsync(row.text); } },
     ] });
-  }, [menu, dialog, client, id, session, running, refresh, harnessUrl, records]);
+  }, [menu, dialog, client, id, session, running, refresh, harnessUrl, records, pane]);
   // Tapping a workspace file/folder link in a reply opens it in Files: folders open directly; files open
   // their folder with the file highlighted, then the file itself.
   const openFileLink = useCallback((href: string) => {
@@ -446,8 +459,8 @@ export default function Thread() {
   const workspace = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : undefined;
   const subtitle = [workspace, status === 'connected' ? (working ? 'Working…' : undefined) : 'Offline'].filter(Boolean).join(' · ');
   const toLatest = () => scrollToBottom();
-  const goBack = useCallback(() => { if (router.canGoBack()) router.back(); else router.replace('/'); }, []);
-  return <SwipeBack onBack={goBack} enabled={!promptsOpen}><Screen edges={['top', 'bottom']}>
+  const goBack = useCallback(() => { if (embedded) return; if (router.canGoBack()) router.back(); else router.replace('/'); }, [embedded]);
+  return <SwipeBack onBack={goBack} enabled={!promptsOpen && !embedded}><Screen edges={['top', 'bottom']}>
     <KeyboardAvoidingView onLayout={e => diagnostic('chat.layout', { ...e.nativeEvent.layout })} style={{ flex: 1 }} behavior="padding">
       <GlassTarget target={target}>
         <GestureDetector gesture={pinch.pinch}><View style={{ flex: 1 }} collapsable={false}>
@@ -462,7 +475,7 @@ export default function Thread() {
           onEndReached={() => { if (hasMore) void older(); }} onEndReachedThreshold={1.2}
           onScrollToIndexFailed={info => { list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); setTimeout(() => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.35, animated: true }), 120); }}
           keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: hasMore ? 0 : 62 }}
+          contentContainerStyle={[{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: hasMore ? 0 : 62 }, readable(wide)]}
           ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{[...outbox].reverse().map(o => <Pressable key={o.id} accessibilityRole="button" accessibilityLabel={o.error ? `Couldn’t send: ${o.text}` : `Waiting to send: ${o.text}`} accessibilityHint="Tap for options" onPress={() => outboxMenu(o)} style={({ pressed }) => ({ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, borderWidth: 1, borderStyle: 'dashed', borderColor: o.error ? colors.danger : colors.border, opacity: pressed ? 0.6 : 0.85 })}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 }}><Ionicons name={o.error ? 'alert-circle-outline' : connected ? 'arrow-up-circle-outline' : 'time-outline'} size={12} color={o.error ? colors.danger : colors.muted} /><T style="caption2" color={o.error ? 'danger' : 'secondary'}>{o.error ? 'Couldn’t send · tap for options' : connected ? 'Sending…' : 'Waiting for connection'}</T></View><T style="footnote" numberOfLines={6}>{o.text}</T></Pressable>)}{pendingSends.map(s => <View key={s.key} style={{ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, opacity: 0.75 }}><T style="caption2" color="secondary">You · Sending…</T><T style="footnote" numberOfLines={6}>{s.text}</T></View>)}{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={p.eventId} frame={p} /> : <PendingRequest key={p.eventId} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
           ListFooterComponent={hasMore ? <View style={{ alignItems: 'center', paddingTop: 66, paddingBottom: 8 }}>{olderBusy ? <View accessibilityLabel="Loading earlier messages" style={{ height: 34, justifyContent: 'center' }}><Dots size="sm" /></View> : <Pressable accessibilityRole="button" accessibilityLabel="Load earlier messages" onPress={() => void older()} hitSlop={8} style={({ pressed }) => ({ height: 34, paddingHorizontal: 14, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: pressed ? colors.state : colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border })}><Ionicons name="arrow-up" size={13} color={colors.muted} /><T style="caption1" color="secondary">Load earlier messages</T></Pressable>}</View> : null}
           renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} onReplyAction={replyMenu} /></View>; }} /></GestureDetector></MessageLinkContext.Provider></StepDetailContext.Provider></ChatScrollContext.Provider></Animated.View>}
@@ -471,7 +484,7 @@ export default function Thread() {
         {jumpVisible ? <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 10, left: 0, right: 0, alignItems: 'center' }}><Pressable accessibilityRole="button" accessibilityLabel="Scroll to latest message" onPress={toLatest} hitSlop={4}><Glass radius={18} interactive style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="arrow-down" size={18} color={colors.text} /></Glass></Pressable></View> : null}
       </GlassTarget>
       <ErrorNotice message={deviceOffline && /network|offline|connect/i.test(error) ? '' : error} />
-      <GlassTargetProvider value={target}>
+      <View style={readable(wide)}><GlassTargetProvider value={target}>
         {/* Only when actually disconnected: while Live, cached rows are just the brief warm-up before the fresh history arrives. */}
         {/* Live but the latest history is still in flight: show a sync state, not the offline warning. */}
         {syncingLive ? <View accessibilityRole="progressbar" accessibilityLabel="Syncing latest messages" accessibilityLiveRegion="polite" style={{ marginHorizontal: 12, marginBottom: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.panel, borderWidth: 0.5, borderColor: colors.glassEdge }}><Dots size="sm" /><T style="caption1" color="secondary">Syncing latest messages…</T></View> : null}
@@ -479,11 +492,11 @@ export default function Thread() {
         {!isSubagent ? <JobsChip sessionId={id} /> : null}
         <ComposerContext sessionId={id} running={running} values={(session?.projections?.values as Record<string, any>) ?? {}} onRestore={text => setDraft(d => d.trim() ? `${d}\n${text}` : text)} />
         {readOnly ? <View style={{ marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.fill }}><Ionicons name="git-branch-outline" size={16} color={colors.muted} /><View style={{ flex: 1 }}><T style="caption1" color="secondary">One-shot subagent — it ran once for its parent and can’t take new messages.</T></View></View> : <ChatComposer sessionId={id} imports={imports.items} onImport={c => void imports.pick(c)} onAttachMedia={a => void imports.addAssets(a)} onRemoveImport={imports.remove} onRetryImport={imports.retry} draft={draft} onChange={setDraft} onSend={mode => void send(mode)} running={working} busy={false} disabled={false} offline={!connected} onStop={stopTurn}  />}
-      </GlassTargetProvider>
+      </GlassTargetProvider></View>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <GlassTargetProvider value={target}>
-          <Header title={session ? (isSubagent ? sub.label : sessionTitle(session)) : 'Session'} subtitle={isSubagent ? `Subagent${readOnly ? ' · one-shot' : ''}${subtitle ? ` · ${subtitle}` : ''}` : subtitle || undefined} back>
-            {isSubagent && session?.parentSessionId ? <IconButton icon="git-branch-outline" size={18} label="Open parent session" onPress={() => router.push({ pathname: '/thread/[id]', params: { id: session.parentSessionId!, harness: harnessUrl } })} /> : null}
+          <Header title={session ? (isSubagent ? sub.label : sessionTitle(session)) : 'Session'} subtitle={isSubagent ? `Subagent${readOnly ? ' · one-shot' : ''}${subtitle ? ` · ${subtitle}` : ''}` : subtitle || undefined} back={!embedded}>
+            {isSubagent && session?.parentSessionId ? <IconButton icon="git-branch-outline" size={18} label="Open parent session" onPress={() => pane ? pane.select(session.parentSessionId!) : router.push({ pathname: '/thread/[id]', params: { id: session.parentSessionId!, harness: harnessUrl } })} /> : null}
             {outline.length ? <IconButton icon="list-outline" size={18} label="Prompts" onPress={() => setPromptsOpen(true)} /> : null}
             <IconButton icon="folder-open-outline" size={18} label="Files" onPress={() => router.push({ pathname: '/files', params: { sessionId: id, root: session?.cwd } })} />
             <IconButton icon="terminal-outline" size={18} label="Terminal" onPress={() => router.push({ pathname: '/terminal', params: { sessionId: id } })} />

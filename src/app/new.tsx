@@ -89,7 +89,7 @@ export default function NewTask() {
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
 
-  return <Screen><Header title="New Session" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
+  return <Screen readable><Header title="New Session" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
     <Section header="Working Directory" footer="Where the agent starts. Leave it on the Harness default, or browse the Harness for a folder.">
       <Row icon="folder-outline" title={cwd ? cwd.split('/').filter(Boolean).pop() ?? cwd : 'Harness default'} subtitle={cwd || undefined} onPress={busy ? undefined : () => setPicker(true)} />
       {cwd ? <Row icon="close-circle-outline" title="Use Harness Default" chevron={false} onPress={() => setCwd('')} /> : null}

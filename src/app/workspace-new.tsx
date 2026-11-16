@@ -16,7 +16,7 @@ export default function NewWorkspace() {
     try { const r = await client.call('workspace/create', { request: { path } }); await refresh(); if (!r?.created) await dialog.alert('Already a Workspace', `${r?.workspace?.title ?? path} is already in your workspace list.`); router.back(); }
     catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
-  return <Screen>
+  return <Screen readable>
     <Header title="Add Workspace" back />
     <View style={{ paddingHorizontal: 14, paddingBottom: 4 }}><T style="caption1" color="secondary">Pick a folder on the Harness. New sessions can then start there.</T></View>
     <ErrorNotice message={error} />

@@ -79,7 +79,7 @@ export default function Details() {
   const inboxCount = (values.inbox?.['next-turn']?.length ?? 0) + (values.inbox?.['next-step']?.length ?? 0);
   const todos: { content?: string; status?: string }[] = Array.isArray(values.todos?.items) ? values.todos.items : Array.isArray(values.todos) ? values.todos : [];
 
-  return <Screen><Header title="Session Details" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
+  return <Screen readable><Header title="Session Details" back /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
     <View style={{ gap: 10 }}><Field label="Title" value={title} onChangeText={setTitle} returnKeyType="done" onSubmitEditing={save} /><Button title="Save Title" secondary loading={busy} disabled={!client || !title.trim()} onPress={save} /></View>
 
     <Section header="Session">

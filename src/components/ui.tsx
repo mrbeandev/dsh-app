@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../state/app';
+import { READABLE_MAX, useLayout } from '../lib/layout';
 import { Glass } from './Glass';
 import { Dots } from './Loader';
 import { CopyButton } from './CopyButton';
@@ -32,7 +33,16 @@ export type TypeStyle = keyof typeof type;
 export const HIT = 44;
 export const slop = (visible: number) => { const v = Math.max(0, (HIT - visible) / 2); return { top: v, bottom: v, left: v, right: v }; };
 
-export function Screen({ children, edges = ['top', 'bottom'] }: { children: React.ReactNode; edges?: ('top' | 'bottom')[] }) { const { colors } = useApp(); return <SafeAreaView edges={edges} style={{ flex: 1, backgroundColor: colors.bg }}>{children}</SafeAreaView>; }
+/**
+ * Full-screen container. `readable` (forms, settings, lists): on tablets the background stays full width
+ * and the content becomes a centred READABLE_MAX column. Phones render exactly as before.
+ */
+export function Screen({ children, edges = ['top', 'bottom'], readable: capped = false }: { children: React.ReactNode; edges?: ('top' | 'bottom')[]; readable?: boolean }) {
+  const { colors } = useApp(); const { wide } = useLayout();
+  return <SafeAreaView edges={edges} style={{ flex: 1, backgroundColor: colors.bg }}>
+    {capped && wide ? <View style={{ flex: 1, width: '100%', maxWidth: READABLE_MAX, alignSelf: 'center' }}>{children}</View> : children}
+  </SafeAreaView>;
+}
 
 export function T({ children, style = 'body', color, weight, numberOfLines, selectable, align, styleOverride }: { children: React.ReactNode; style?: TypeStyle; color?: 'primary' | 'secondary' | 'tertiary' | 'accent' | 'danger' | string; weight?: TextStyle['fontWeight']; numberOfLines?: number; selectable?: boolean; align?: TextStyle['textAlign']; styleOverride?: StyleProp<TextStyle> }) {
   const { colors } = useApp();

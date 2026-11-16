@@ -88,7 +88,7 @@ export default function Files() {
     { label: sortDir === 'asc' ? 'Switch to Descending' : 'Switch to Ascending', icon: (sortDir === 'asc' ? 'arrow-down' : 'arrow-up') as IconName, onPress: () => setSortDir(d => (d === 'asc' ? 'desc' : 'asc')) },
   ] });
 
-  return <Screen>
+  return <Screen readable>
     <Header title="Files" subtitle={root ? root.split('/').filter(Boolean).pop() : undefined} back>
       <IconButton icon="swap-vertical" size={18} label={`Sort: ${sortLabel}`} onPress={openSort} />
       <IconButton icon={showHidden ? 'eye-outline' : 'eye-off-outline'} size={18} label={showHidden ? 'Hide hidden files' : 'Show hidden files'} onPress={() => setShowHidden(v => !v)} />

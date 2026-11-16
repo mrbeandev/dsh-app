@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Image, Pressable, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 import { SkeletonRows } from '../components/Loader';
 import { UpdateBanner } from '../components/UpdateCard';
@@ -20,6 +20,8 @@ import { groupWorkspaces } from '../lib/workspaces';
 import { relativeTime } from '../lib/time';
 import { useActionMenu } from '../components/ActionMenu';
 import { useDialog } from '../components/Dialog';
+import { ChatPane } from './thread/[id]';
+import { SIDEBAR_WIDTH, SplitPaneContext, getSplitSelection, setSplitSelection, subscribeSplitSelection, useLayout } from '../lib/layout';
 
 type Filter = 'All' | 'Working';
 
@@ -29,6 +31,25 @@ const SESSIONS_SHOWN = 5;
 const SESSIONS_PAGE = 10;
 
 export default function Home() {
+  const { split } = useLayout();
+  const selected = useSyncExternalStore(subscribeSplitSelection, getSplitSelection, getSplitSelection);
+  const { colors, client, savedUrl } = useApp();
+  const pane = useMemo(() => ({ embedded: true, select: (id: string) => setSplitSelection(id) }), []);
+  if (!split) return <SessionList />;
+  return <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.bg }}>
+    <View style={{ width: SIDEBAR_WIDTH, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border }}>
+      <SessionList selectedId={selected} onOpen={id => setSplitSelection(id)} />
+    </View>
+    <View style={{ flex: 1 }}>
+      {selected ? <SplitPaneContext.Provider value={pane}><ChatPane key={selected} id={selected} harness={client?.connection.url ?? savedUrl ?? undefined} /></SplitPaneContext.Provider>
+        : <Screen edges={['top']}><Empty icon="chatbubbles-outline" title="Pick a Session" detail="Choose a session on the left, or start a new task." /></Screen>}
+    </View>
+  </View>;
+}
+
+/** Workspace tree + sessions. Full screen on phones; the left pane of the split view on tablets. */
+function SessionList({ selectedId, onOpen }: { selectedId?: string | null; onOpen?: (sessionId: string) => void } = {}) {
+  const openThread = (id: string, harness?: string | null) => { if (onOpen) onOpen(id); else router.push({ pathname: '/thread/[id]', params: { id, harness: harness ?? undefined } }); };
   const { colors, sessions, workspaces, archived, pinned, client, status, deviceOffline, savedUrl, loading, refresh, resync, refreshWorkspace, pending } = useApp();
   const insets = useSafeAreaInsets();
   const target = useRef<View>(null);
@@ -127,7 +148,7 @@ export default function Home() {
           {query.trim().length >= 3 && (content.loading || contentHits.length) ? <View style={{ gap: 4 }}>
             <T style="caption2" color="secondary" weight="600" styleOverride={{ letterSpacing: 0.4 }}>{content.loading && !contentHits.length ? 'SEARCHING MESSAGES…' : 'FOUND IN MESSAGES'}</T>
             {contentHits.map(h => { const s2 = byId.get(h.sessionId); return <Pressable key={h.sessionId} accessibilityRole="button" accessibilityLabel={`${s2 ? sessionTitle(s2) : 'Session'}: ${snippetLine(h.snippet)}`}
-              onPress={() => router.push({ pathname: '/thread/[id]', params: { id: h.sessionId, harness: client?.connection.url ?? savedUrl } })}
+              onPress={() => openThread(h.sessionId, client?.connection.url ?? savedUrl)}
               style={({ pressed }) => ({ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, gap: 2, backgroundColor: pressed ? colors.state : colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border })}>
               <T style="footnote" weight="600" numberOfLines={1}>{s2 ? sessionTitle(s2) : h.sessionId}</T>
               <T style="caption1" color="secondary" numberOfLines={2}>{snippetLine(h.snippet)}</T>
@@ -159,7 +180,7 @@ export default function Home() {
           return <View style={{ marginLeft: 29, paddingLeft: 15, marginRight: 12, paddingBottom: 3 }}>
             <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: index === section.data.length - 1 && !section.more ? 19 : 0, width: 1, backgroundColor: colors.border }} />
             <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 16, width: 15, height: 1, backgroundColor: colors.border }} />
-            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${self ? ', working' : active ? ', a subagent is working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => router.push({ pathname: '/thread/[id]', params: { id: item.sessionId, harness: client?.connection.url ?? savedUrl } })} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} style={({ pressed }) => ({ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: pressed ? colors.state : colors.panel })}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${self ? ', working' : active ? ', a subagent is working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => openThread(item.sessionId, client?.connection.url ?? savedUrl)} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} accessibilityState={selectedId !== undefined ? { selected: selectedId === item.sessionId } : undefined} style={({ pressed }) => ({ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: selectedId === item.sessionId ? colors.text : colors.border, backgroundColor: pressed || selectedId === item.sessionId ? colors.state : colors.panel })}>
               <Ionicons name="chatbubble-outline" size={13} color={colors.tertiary} />
               <StatusMark kind={attention ? 'input' : active ? 'working' : finished ? 'unseen' : 'none'} />
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>
@@ -167,7 +188,7 @@ export default function Home() {
               <SubagentToggle nodes={tree} open={!!subOpen[item.sessionId]} onToggle={() => setSubOpen(o => ({ ...o, [item.sessionId]: !o[item.sessionId] }))} />
               <T style="caption2" color="secondary">{relativeTime(item.updatedAt)}</T>
             </Pressable>
-            {subOpen[item.sessionId] && tree.length ? <SubagentBranches nodes={tree} live={live} onOpen={n => router.push({ pathname: '/thread/[id]', params: { id: n.session.sessionId, harness: client?.connection.url ?? savedUrl } })} /> : null}
+            {subOpen[item.sessionId] && tree.length ? <SubagentBranches nodes={tree} live={live} onOpen={n => openThread(n.session.sessionId, client?.connection.url ?? savedUrl)} /> : null}
           </View>;
         }}
         ListEmptyComponent={<View style={{ flex: 1, justifyContent: 'center', paddingTop: 40, gap: 20 }}>

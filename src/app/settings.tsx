@@ -34,7 +34,7 @@ export default function Settings() {
     try { await clearCache(url); setCaches(await listCaches()); } catch { await dialog.alert('Couldn’t Clear Cache', 'Please try again.', 'danger'); }
   };
   const host = client ? new URL(client.connection.url).host : '';
-  return <Screen><Header title="Settings" back /><ScrollView contentContainerStyle={s.body}>
+  return <Screen readable><Header title="Settings" back /><ScrollView contentContainerStyle={s.body}>
     <Section header="Harness">
       <Row icon="server-outline" title={host || 'Connect Harness'} subtitle={host ? (status === 'connected' ? 'Connected' : status[0].toUpperCase() + status.slice(1)) : 'URL and auth token'} onPress={() => router.push('/connect')} />
       {client ? <Row icon="log-out-outline" title="Disconnect" destructive chevron={false} onPress={() => void dialog.confirm({ title: 'Disconnect?', message: 'Your saved token is removed from this device. Cached chats stay until you clear them.', confirm: 'Disconnect', destructive: true, icon: 'log-out-outline' }).then(ok => { if (ok) void disconnect().then(() => router.replace('/')); })} /> : null}

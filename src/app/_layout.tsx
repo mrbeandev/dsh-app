@@ -9,13 +9,18 @@ import { UpdateProvider } from '../state/updates';
 import { NotificationProvider } from '../state/notifications';
 import { UnseenProvider } from '../state/unseen';
 import { BetaDiagnostics } from '../components/BetaDiagnostics';
+import { Dimensions } from 'react-native';
+import { isTabletScreen } from '../lib/layout';
 
 function Navigation() {
   const { colors } = useApp();
+  // Phones: portrait only (unchanged; app.json also locks portrait, so launch is portrait too).
+  // Tablets: any orientation — this unlocks the activity at runtime. Screen size is fixed per device.
+  const screen = Dimensions.get('screen'); const orientation = isTabletScreen(screen.width, screen.height) ? 'default' as const : 'portrait' as const;
   return <>
     <BetaDiagnostics />
     <StatusBar style={colors.dark ? 'light' : 'dark'} />
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'slide_from_right', animationDuration: 220 }}>
+    <Stack screenOptions={{ headerShown: false, orientation, contentStyle: { backgroundColor: colors.bg }, animation: 'slide_from_right', animationDuration: 220 }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="connect" options={{ presentation: 'modal' }} />
       <Stack.Screen name="new" options={{ presentation: 'modal' }} />

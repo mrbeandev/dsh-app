@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/app';
 import { IconButton, T } from './ui';
 import { Glass } from './Glass';
+import { PANEL_MAX, useLayout } from '../lib/layout';
 
 /**
  * Bottom sheet following Apple HIG › Sheets:
@@ -18,6 +19,8 @@ export function Sheet({ visible, onClose, title, children, height = 0.72 }: { vi
 
 function SheetBody({ onClose, title, children, height }: { onClose: () => void; title: string; children: React.ReactNode; height: number }) {
   const { colors } = useApp(); const insets = useSafeAreaInsets();
+  // Tablets: a centred panel instead of a full-width drawer. Phones: unchanged bottom sheet.
+  const { wide, width: winW, height: winH } = useLayout();
   const [screen] = useState(() => Dimensions.get('window').height);
   const [y] = useState(() => new Animated.Value(screen));
   const onCloseRef = useRef(onClose);
@@ -50,8 +53,10 @@ function SheetBody({ onClose, title, children, height }: { onClose: () => void; 
   const dim = y.interpolate({ inputRange: [0, screen], outputRange: [1, 0], extrapolate: 'clamp' });
   return <Modal visible transparent statusBarTranslucent navigationBarTranslucent animationType="none" onRequestClose={close}>
     <Animated.View style={{ flex: 1, backgroundColor: '#00000066', opacity: dim }}><Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} style={{ flex: 1 }} /></Animated.View>
-    <Animated.View accessibilityViewIsModal style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${height * 100}%`, transform: [{ translateY: y }] }}>
-      <Glass radius={18} depth="popover" prominent solidOnAndroid style={{ flex: 1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: insets.bottom }}>
+    <Animated.View accessibilityViewIsModal style={wide
+      ? { position: 'absolute', width: Math.min(PANEL_MAX, winW - 48), height: Math.min(winH * height, winH - insets.top - insets.bottom - 48), left: (winW - Math.min(PANEL_MAX, winW - 48)) / 2, top: (winH - Math.min(winH * height, winH - insets.top - insets.bottom - 48)) / 2, transform: [{ translateY: y }] }
+      : { position: 'absolute', left: 0, right: 0, bottom: 0, height: `${height * 100}%`, transform: [{ translateY: y }] }}>
+      <Glass radius={18} depth="popover" prominent solidOnAndroid style={wide ? { flex: 1 } : { flex: 1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: insets.bottom }}>
         <View {...handlers}>
           <Pressable accessibilityRole="button" accessibilityLabel="Dismiss sheet" accessibilityHint="Swipe down or tap to close" onPress={close} style={{ height: 22, alignItems: 'center', justifyContent: 'center' }}><View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: colors.tertiary }} /></Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 8, paddingBottom: 6, minHeight: 40 }}>
