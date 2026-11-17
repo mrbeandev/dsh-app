@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Loading } from '../components/Loader';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { randomUUID } from 'expo-crypto';
 import { useApp } from '../state/app';
@@ -15,7 +15,20 @@ import { XTerm, type XTermHandle } from '../components/XTerm';
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 type TermInfo = { id: string; title: string; cwd: string; state: 'running' | 'exited' | 'failed'; exitCode: number | null; shell?: { name: string } };
 const COLS = 80, ROWS = 24;
-const KEYS: { label: string; data: string }[] = [{ label: 'Esc', data: '\u001b' }, { label: 'Tab', data: '\t' }, { label: '^C', data: '\u0003' }, { label: '^D', data: '\u0004' }, { label: '←', data: '\u001b[D' }, { label: '↑', data: '\u001b[A' }, { label: '↓', data: '\u001b[B' }, { label: '→', data: '\u001b[C' }, { label: 'Home', data: '\u001b[H' }, { label: 'End', data: '\u001b[F' }, { label: 'PgUp', data: '\u001b[5~' }, { label: 'PgDn', data: '\u001b[6~' }, { label: '|', data: '|' }, { label: '~', data: '~' }, { label: '/', data: '/' }, { label: '-', data: '-' }];
+type KeyIcon = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+/**
+ * Extra keys above the keyboard. `icon` keys show a keyboard icon (their `label` is the spoken name);
+ * symbol keys (| ~ / -) show the character itself, since that's what gets typed.
+ */
+const KEYS: { label: string; data: string; icon?: KeyIcon; letter?: string }[] = [
+  { label: 'Escape', data: '\u001b', icon: 'keyboard-esc' }, { label: 'Tab', data: '\t', icon: 'keyboard-tab' },
+  { label: 'Control C, interrupt', data: '\u0003', icon: 'apple-keyboard-control', letter: 'C' }, { label: 'Control D, end of input', data: '\u0004', icon: 'apple-keyboard-control', letter: 'D' },
+  { label: 'Left arrow', data: '\u001b[D', icon: 'arrow-left' }, { label: 'Up arrow', data: '\u001b[A', icon: 'arrow-up' },
+  { label: 'Down arrow', data: '\u001b[B', icon: 'arrow-down' }, { label: 'Right arrow', data: '\u001b[C', icon: 'arrow-right' },
+  { label: 'Home', data: '\u001b[H', icon: 'arrow-collapse-left' }, { label: 'End', data: '\u001b[F', icon: 'arrow-collapse-right' },
+  { label: 'Page up', data: '\u001b[5~', icon: 'chevron-double-up' }, { label: 'Page down', data: '\u001b[6~', icon: 'chevron-double-down' },
+  { label: '|', data: '|' }, { label: '~', data: '~' }, { label: '/', data: '/' }, { label: '-', data: '-' },
+];
 const FONT_KEY = 'dsh.terminal.fontSize';
 
 /** Workspace terminal over the official terminal API (create / follow / write / resize / close). */
@@ -120,9 +133,9 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 10, paddingBottom: 6 }}>
       <T style="caption2" color="tertiary">{`${fontSize}px`}</T>
-      <Mini label="A−" a11y="Smaller text" onPress={() => zoom(-1)} />
-      <Mini label="A+" a11y="Larger text" onPress={() => zoom(1)} />
-      <Mini label="⌨" a11y="Show keyboard" onPress={() => term.current?.focus()} />
+      <Mini icon="format-font-size-decrease" a11y="Smaller text" onPress={() => zoom(-1)} />
+      <Mini icon="format-font-size-increase" a11y="Larger text" onPress={() => zoom(1)} />
+      <Mini icon="keyboard-outline" a11y="Show keyboard" onPress={() => term.current?.focus()} />
     </View>
     <View style={{ flex: 1, marginHorizontal: 10, borderRadius: 14, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
       <XTerm ref={term} fontSize={fontSize} dark={colors.dark} onInput={onInput} onResize={onResize} onReady={onReady} />
@@ -131,17 +144,18 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
     </View>
     <ErrorNotice message={error} />
     <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 8, gap: 6 }}>
-      <KeyBtn label="Ctrl" active={ctrl} onPress={() => setCtrl(v => !v)} />
-      {KEYS.map(k => <KeyBtn key={k.label} label={k.label} onPress={() => send(k.data)} />)}
+      <KeyBtn label="Control" icon="apple-keyboard-control" active={ctrl} onPress={() => setCtrl(v => !v)} />
+      {KEYS.map(k => <KeyBtn key={k.label} label={k.label} icon={k.icon} letter={k.letter} onPress={() => send(k.data)} />)}
     </ScrollView>
   </KeyboardAvoidingView>;
 }
 
-function KeyBtn({ label, onPress, active }: { label: string; onPress: () => void; active?: boolean }) {
+function KeyBtn({ label, onPress, active, icon, letter }: { label: string; onPress: () => void; active?: boolean; icon?: KeyIcon; letter?: string }) {
   const { colors } = useApp();
-  return <Pressable accessibilityRole="button" accessibilityLabel={`Send ${label}`} accessibilityState={{ selected: !!active }} onPress={onPress} style={({ pressed }) => ({ height: 32, minWidth: 42, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? colors.primary : colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><Text style={{ color: active ? colors.bg : colors.text, fontFamily: MONO, fontSize: 12 }}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label === 'Control' ? 'Control key' : `Send ${label}`} accessibilityState={{ selected: !!active }} onPress={onPress} style={({ pressed }) => ({ height: 32, minWidth: 42, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? colors.primary : colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}>{icon && letter ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialCommunityIcons name={icon} size={15} color={colors.text} /><Text style={{ color: colors.text, fontFamily: MONO, fontSize: 14, fontWeight: '600' }}>{letter}</Text></View>
+    : icon ? <MaterialCommunityIcons name={icon} size={18} color={active ? colors.bg : colors.text} /> : <Text style={{ color: active ? colors.bg : colors.text, fontFamily: MONO, fontSize: 14 }}>{label}</Text>}</Pressable>;
 }
-function Mini({ label, a11y, onPress }: { label: string; a11y: string; onPress: () => void }) {
+function Mini({ icon, a11y, onPress }: { icon: KeyIcon; a11y: string; onPress: () => void }) {
   const { colors } = useApp();
-  return <Pressable accessibilityRole="button" accessibilityLabel={a11y} hitSlop={6} onPress={onPress} style={({ pressed }) => ({ height: 28, minWidth: 34, paddingHorizontal: 8, borderRadius: 8, boxShadow: `inset 0 1px 0 ${colors.rim}`, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><Text style={{ color: colors.text, fontSize: 12, fontWeight: '600' }}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={a11y} hitSlop={6} onPress={onPress} style={({ pressed }) => ({ height: 28, minWidth: 34, paddingHorizontal: 8, borderRadius: 8, boxShadow: `inset 0 1px 0 ${colors.rim}`, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><MaterialCommunityIcons name={icon} size={18} color={colors.text} /></Pressable>;
 }
