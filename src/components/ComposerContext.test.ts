@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-1' }));
 vi.mock('react-native', () => ({ StyleSheet: { create: (x: unknown) => x, hairlineWidth: 1 }, LayoutAnimation: {} }));
-vi.mock('@expo/vector-icons', () => ({}));
+vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
+vi.mock('@expo/vector-icons/MaterialCommunityIcons', () => ({ default: () => null }));
 vi.mock('../state/app', () => ({}));
 vi.mock('./Dialog', () => ({}));
 vi.mock('./ui', () => ({}));

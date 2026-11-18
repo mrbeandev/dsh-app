@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { Frame } from '../lib/protocol';
 import { errorMessage } from '../lib/harness';

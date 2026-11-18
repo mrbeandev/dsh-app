@@ -3,7 +3,7 @@ import { Animated, AppState, Easing, FlatList, Platform, Pressable, StyleSheet, 
 // Frame-by-frame keyboard tracking: the composer follows the keyboard down when it hides, instead of
 // staying mid-screen over a blank area until the window finishes resizing.
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Glass, GlassTarget, GlassTargetProvider } from '../../components/Glass';
 import { Dots, SkeletonChat } from '../../components/Loader';
 import { useActionMenu } from '../../components/ActionMenu';

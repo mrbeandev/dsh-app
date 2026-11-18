@@ -7,7 +7,7 @@ import { effortLabel, type Reasoning } from './reasoning';
  * Harness model catalog. Cache that catalog per connection so the composer and Session Details can
  * show the model's name rather than its id.
  */
-type Catalog = { groups?: { id: string; name?: string; models?: { id: string; name?: string; reasoning?: Reasoning }[] }[]; providers?: Catalog['groups'] };
+type Catalog = { groups?: { id: string; name?: string; models?: { id: string; name?: string; reasoning?: Reasoning }[] }[]; providers?: Catalog['groups']; default?: { provider?: string; model?: string } };
 const cache = new WeakMap<HarnessClient, Promise<Catalog | null>>();
 const listeners = new Set<() => void>();
 
@@ -61,4 +61,17 @@ export function useModelName(client: HarnessClient | null, model?: string, provi
     return () => { live = false; listeners.delete(update); };
   }, [client]);
   return modelName(catalog, model, provider);
+}
+
+/** The Harness's default model (used by sessions that haven't picked one yet). */
+export function useCatalogDefault(client: HarnessClient | null): { provider?: string; model?: string } | undefined {
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  useEffect(() => {
+    if (!client) return;
+    let live = true;
+    const update = () => { void loadCatalog(client).then(c => { if (live) setCatalog(c); }); };
+    update(); listeners.add(update);
+    return () => { live = false; listeners.delete(update); };
+  }, [client]);
+  return catalog?.default;
 }

@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'dev.mrbean.dshlocal'
+version = '1.0.0'
+
+android {
+  namespace "dev.mrbean.dshlocal"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+  // proot and its helpers are executables packaged as lib*.so; they must be extracted to
+  // nativeLibraryDir (not left compressed in the APK) so they can be run.
+  packaging {
+    jniLibs {
+      useLegacyPackaging = true
+      // These are prebuilt executables, already stripped, and patched with patchelf. Re-stripping a
+      // patchelf'd ELF corrupts it (the stripped proot segfaulted on device), so ship them as-is.
+      keepDebugSymbols += ['**/libproot.so', '**/libproot-loader.so', '**/libtalloc.so', '**/libandroid-shmem.so']
+    }
+  }
+}

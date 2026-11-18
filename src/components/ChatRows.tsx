@@ -4,7 +4,7 @@ import { ChatScrollContext } from './chatScroll';
 import { StepDetailContext } from './stepDetail';
 import { AttachmentImage } from './AttachmentImage';
 import { Dots } from './Loader';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { T } from './ui';
 import { MessageMarkdown } from './MessageMarkdown';

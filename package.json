@@ -1,6 +1,6 @@
 {
   "name": "dsh-app",
-  "version": "12.11.2",
+  "version": "13.0.0",
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",

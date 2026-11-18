@@ -3,7 +3,7 @@ import { Image, Modal, Pressable, StatusBar, useWindowDimensions, View } from 'r
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { T } from './ui';
 import { clampOffset } from '../lib/zoom';
 

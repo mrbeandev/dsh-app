@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { T } from './ui';
 

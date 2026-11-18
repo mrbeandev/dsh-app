@@ -1,5 +1,5 @@
 import { Dimensions, Linking, Pressable, StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { SETTINGS_PANE, layoutFor, setSplitSelection } from '../lib/layout';
 import { useApp } from '../state/app';

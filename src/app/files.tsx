@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SkeletonRows } from '../components/Loader';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useApp } from '../state/app';
 import { Empty, ErrorNotice, Header, IconButton, Screen, SearchField, T } from '../components/ui';

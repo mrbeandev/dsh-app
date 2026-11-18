@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { T } from './ui';
 import { Sheet } from './Sheet';

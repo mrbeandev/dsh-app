@@ -1,7 +1,8 @@
 import { expect, it, vi } from 'vitest';
 import { planReviewOf } from './PlanReview';
 vi.mock('react-native', () => ({}));
-vi.mock('@expo/vector-icons', () => ({}));
+vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
+vi.mock('@expo/vector-icons/MaterialCommunityIcons', () => ({ default: () => null }));
 vi.mock('../state/app', () => ({}));
 vi.mock('./Dialog', () => ({}));
 vi.mock('./MessageMarkdown', () => ({}));

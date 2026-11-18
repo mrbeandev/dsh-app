@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { ModelPicker } from './ModelPicker';
 import { Glass } from './Glass';
@@ -8,7 +8,7 @@ import { T, type } from './ui';
 import { ImportPicker } from './ImportPicker';
 import { sendActions, useSendMode } from '../lib/sendPreference';
 import type { ImportCategory, ImportItem } from '../lib/imports';
-import { useModelLabel } from '../lib/modelNames';
+import { useCatalogDefault, useModelLabel } from '../lib/modelNames';
 import { AttachmentTray } from './AttachmentTray';
 import type { ModelChoice } from './ModelPicker';
 import type * as DocumentPicker from 'expo-document-picker';
@@ -27,7 +27,9 @@ export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, runni
   const diagnosticRef = useLayoutDiagnostics('composer.bounds');
   const selection = sessions.find(s => s.sessionId === sessionId)?.projections?.values.modelSelection as any;
   const active = (selection?.next ?? selection?.lastUsed) as { provider?: string; model?: string; reasoningEffort?: string } | undefined;
-  const current = chosen ? { provider: chosen.provider, model: chosen.model, reasoningEffort: chosen.reasoningEffort } : active;
+  // A new session has no selection until its first turn; it uses the Harness default meanwhile.
+  const fallback = useCatalogDefault(client);
+  const current: { provider?: string; model?: string; reasoningEffort?: string } | undefined = chosen ? { provider: chosen.provider, model: chosen.model, reasoningEffort: chosen.reasoningEffort } : active?.model ? active : fallback;
   // Always the model's display name (from the Harness catalog), never its id, plus its reasoning level.
   const { name: model, level } = useModelLabel(client, current?.model, current?.provider, current?.reasoningEffort);
   const [importOpen, setImportOpen] = useState(false);

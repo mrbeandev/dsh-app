@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useModelLabel } from '../../lib/modelNames';
 import { ScheduleSection } from '../../components/ScheduleSection';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams } from 'expo-router';
 import { useApp } from '../../state/app';
 import { Button, ErrorNotice, Field, Header, IconButton, Row, Screen, Section, T, s } from '../../components/ui';

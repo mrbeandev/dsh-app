@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { clearCache, formatBytes, listCaches } from '../lib/cache';
 import { CACHE_LIMIT_OPTIONS, enforceCacheLimit, getCacheLimitMb, limitLabel, setCacheLimitMb } from '../lib/cacheLimit';
 import { useActionMenu } from '../components/ActionMenu';
+import { LocalHarnessSettings } from '../components/LocalHarnessSettings';
 import { setSendMode, useSendMode } from '../lib/sendPreference';
 import { useApp } from '../state/app';
 import { useDialog } from '../components/Dialog';
@@ -50,7 +51,9 @@ export function SettingsPane({ panel, onClose }: { panel?: boolean; onClose?: ()
     <Section header="Harness">
       <Row icon="server-outline" title={host || 'Connect Harness'} subtitle={host ? (status === 'connected' ? 'Connected' : status[0].toUpperCase() + status.slice(1)) : 'URL and auth token'} onPress={() => router.push('/connect')} />
       {client ? <Row icon="log-out-outline" title="Disconnect" destructive chevron={false} onPress={() => void dialog.confirm({ title: 'Disconnect?', message: 'Your saved token is removed from this device. Cached chats stay until you clear them.', confirm: 'Disconnect', destructive: true, icon: 'log-out-outline' }).then(ok => { if (ok) void disconnect().then(() => router.replace('/')); })} /> : null}
+          {client ? <Row icon="sparkles-outline" title="Add AI Provider" subtitle="API key and models for this Harness" onPress={() => router.push('/add-provider')} /> : null}
     </Section>
+    <LocalHarnessSettings />
     <Section header="Chat" footer={sendMode === 'steer' ? 'While the agent is working, Send steers: your message reaches it at its next step. Long-press Send to queue it for after the turn instead.' : 'While the agent is working, Send queues your message for after the current turn. Long-press Send to steer it in at the next step instead.'}>
       <Row icon="paper-plane-outline" iconTint={colors.muted} title="Send While Working" value={sendMode === 'steer' ? 'Steer' : 'Queue'} onPress={chooseSendMode} />
     </Section>
@@ -69,6 +72,7 @@ export function SettingsPane({ panel, onClose }: { panel?: boolean; onClose?: ()
       <Row title="Solid Glass by DeepLethe" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/deeplethe/solid-glass')} />
       <Row title="T3 Code Mobile" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/pingdotgg/t3code/tree/main/apps/mobile')} />
       <Row title="DeepSeek Harness Mobile" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/sorsama/deepseek-harness-mobile')} />
+          <Row title="Run on This Device: proot, talloc, libandroid-shmem" subtitle="GPL-2.0 · LGPL-3.0 · BSD-3-Clause — notices and source links" icon="document-text-outline" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/mrbeandev/dsh-app/blob/main/modules/dsh-local/THIRD_PARTY_NOTICES.md')} />
     </Section>
     <View style={{ height: 16 }} />
   </ScrollView></Screen>;

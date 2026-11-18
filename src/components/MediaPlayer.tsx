@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { T } from './ui';
 

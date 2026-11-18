@@ -7,7 +7,7 @@ import { useUnseen } from '../state/unseen';
 import { SubagentBranches, SubagentToggle } from '../components/SubagentTree';
 import { childIndex, subagentTree, threadWorking } from '../lib/subagents';
 import type { Session } from '../lib/protocol';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/app';

@@ -30,6 +30,8 @@
 2. **Install the app**: download the latest `.apk` from [Releases](https://github.com/mrbeandev/dsh-app/releases/latest) on your phone and open it.
 3. **Connect**: enter the Harness address (e.g. `http://192.168.1.20:3080`, or `http://127.0.0.1:3080` for Termux on the same phone) and the token. Your workspaces and sessions appear straight away.
 
+No computer? On Android, tap **Connect → Run on This Device** and the app sets up and runs the Harness on the phone itself (see [below](#run-on-this-device-android)).
+
 Using a tunnel or your own domain? See [Connecting through a tunnel](#connecting-through-a-tunnel-or-your-own-domain).
 
 ## How it differs from other Harness phone apps
@@ -173,6 +175,14 @@ This app was rebuilt with two open-source projects as references:
 - **[DeepSeek Harness Mobile](https://github.com/sorsama/deepseek-harness-mobile)** — functionality and Harness protocol reference.
 
 Both are MIT licensed; their notices are kept in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [`licenses/`](licenses).
+
+### Run on This Device (Android)
+
+The app can also run the DeepSeek Harness on the phone or tablet itself, with no computer: **Connect → Run on This Device**. It downloads a small Linux environment (Debian 12 + Node.js 24, about 150 MB, [published here](https://github.com/mrbeandev/dsh-app/releases/tag/rootfs-debian12-node24-v1)), installs the Harness in it with npm, and connects to it. It runs under [proot](https://proot-me.github.io/), so no root is needed. Needs a 64-bit ARM device and about 2.5 GB free. Manage it in **Settings → Local Harness**.
+
+After setup, the app asks for an **AI provider**, since a fresh Harness has none: pick a known provider or enter any OpenAI-compatible endpoint (base URL + API key), fetch its models and choose which to use. The key goes to the Harness's credential store, not its settings file. You can add more later in **Settings → Add AI Provider**, for any Harness the app is connected to.
+
+It bundles proot (GPL-2.0), talloc (LGPL-3.0) and libandroid-shmem (BSD-3-Clause) from the Termux packages, unmodified apart from their file names and the library names they reference; see [modules/dsh-local/THIRD_PARTY_NOTICES.md](modules/dsh-local/THIRD_PARTY_NOTICES.md) for versions and source links. The idea follows [Tiny Container](https://github.com/Cateners/tiny_container) and [Pocket Trilium](https://github.com/nriver/pocket-trilium); no code is taken from them.
 
 ## License
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useApp } from '../state/app';
 import { Button, ErrorNotice, Field, Header, Screen, T, s } from '../components/ui';
@@ -25,6 +25,11 @@ export default function Connect() {
     <ErrorNotice message={error} />
     <Button title="Connect" onPress={submit} loading={busy} disabled={!url.trim()} />
     <T style="footnote" color="secondary" align="center">On a phone, localhost means the phone itself. If the Harness runs on your computer, use its LAN or tunnel address.</T>
+    {Platform.OS === 'android' ? <Pressable accessibilityRole="button" onPress={() => router.push('/local-setup')} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: pressed ? colors.state : colors.panel })}>
+      <Ionicons name="phone-portrait-outline" size={22} color={colors.text} />
+      <View style={{ flex: 1 }}><T style="subhead" weight="600">Run on This Device</T><T style="footnote" color="secondary">No computer? Set up the Harness right here.</T></View>
+      <Ionicons name="chevron-forward" size={18} color={colors.tertiary} />
+    </Pressable> : null}
     {Platform.OS === 'web' ? <T style="footnote" color="secondary" align="center">The web preview needs your Harness to allow this browser origin. Tokens aren’t saved in the browser.</T> : null}
   </ScrollView></KeyboardAvoidingView></Screen>;
 }

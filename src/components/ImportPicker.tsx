@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FlatList, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { Sheet } from './Sheet';
 import { T } from './ui';

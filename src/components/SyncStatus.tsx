@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Animated, Easing, Pressable } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { T } from './ui';
 
