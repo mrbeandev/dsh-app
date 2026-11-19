@@ -47,3 +47,13 @@ export async function turnEvents(client: HarnessClient | null, url: string, sess
   const merged = new Map(local.map(e => [e.seq, e])); for (const e of fetched) merged.set(e.seq, e);
   return [...merged.values()].sort((a, b) => a.seq - b.seq);
 }
+
+/**
+ * One page of recent history before `beforeSeq`, over HTTPS. Used right after a deliberately small live
+ * snapshot (slow tunnels drop the socket if its first frame is large), to fill the screen.
+ */
+export async function recentPage(client: HarnessClient, address: Address, throughSeq: number, beforeSeq: number | undefined, maxMessages: number): Promise<{ full: WireEvent[]; hasMore: boolean } | null> {
+  if (beforeSeq === undefined) return null;
+  const page = await client.request<Page>('session/page', { address, throughSeq, beforeSeq, maxMessages });
+  return { full: eventsOf(page), hasMore: !!page.hasMore };
+}

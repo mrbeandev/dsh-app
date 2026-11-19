@@ -62,3 +62,12 @@ describe('take a steering message back', () => {
     expect(calls).toEqual(['session/updateQueue']);
   });
 });
+
+describe('queue panel header', () => {
+  it('counts queued and steering messages separately', async () => {
+    const { queueHeader } = await import('./ComposerContext');
+    expect(queueHeader(0, 1)).toBe('1 steering message');
+    expect(queueHeader(2, 0)).toBe('2 queued messages');
+    expect(queueHeader(1, 1)).toBe('1 queued · 1 steering');
+  });
+});

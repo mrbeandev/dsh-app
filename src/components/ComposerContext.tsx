@@ -13,6 +13,12 @@ type IconName = React.ComponentProps<typeof Ionicons>['name'];
 export type QueueItem = { id: string; text: string; editable: boolean; content: any[] };
 
 /** One inbox message (wire JSON) → its id and visible text. Non-text parts (images) block editing. */
+/** "2 queued · 1 steering", "1 steering", "3 queued messages". */
+export function queueHeader(queued: number, steering: number) {
+  if (!steering) return queued === 1 ? '1 queued message' : `${queued} queued messages`;
+  if (!queued) return steering === 1 ? '1 steering message' : `${steering} steering messages`;
+  return `${queued} queued · ${steering} steering`;
+}
 export function toQueueItem(m: any): QueueItem | null {
   const id = typeof m?.id === 'string' ? m.id : '';
   if (!id) return null;
@@ -107,14 +113,13 @@ function QueueDock({ sessionId, queued, steering, running, onRestore }: { sessio
   const remove = async (q: QueueItem) => {
     if (await dialog.confirm({ title: 'Remove Queued Message?', message: q.text.length > 140 ? `${q.text.slice(0, 140)}…` : q.text, confirm: 'Remove', destructive: true, icon: 'trash-outline' })) await act(q.id, { kind: 'remove' });
   };
-  const total = queued.length + steering.length;
   const summary = [queued.length ? `${queued.length} queued` : '', steering.length ? `${steering.length} steering` : ''].filter(Boolean).join(' · ');
   // Web UI QueueDock layout: header "N queued messages ⌄", then one line per message with
   // Edit · Delete · ↑ (steer) on the right.
   return <Shell>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${summary}. ${open ? 'Collapse' : 'Expand'}`} onPress={() => setOpen(o => !o)} style={s.row}>
       <Ionicons name="chatbox-ellipses-outline" size={15} color={colors.muted} />
-      <View style={{ flex: 1 }}><T style="caption1" weight="600" numberOfLines={1} styleOverride={{ fontSize: 12.5 }}>{total === 1 ? '1 queued message' : `${total} queued messages`}{steering.length ? <T style="caption1" color={colors.primary} styleOverride={{ fontSize: 12.5 }}>{`  · ${steering.length} steering`}</T> : null}</T></View>
+      <View style={{ flex: 1 }}><T style="caption1" weight="600" numberOfLines={1} styleOverride={{ fontSize: 12.5 }}>{queueHeader(queued.length, steering.length)}</T></View>
       <Ionicons name={open ? 'chevron-down' : 'chevron-up'} size={13} color={colors.tertiary} />
     </Pressable>
     {open ? <View>

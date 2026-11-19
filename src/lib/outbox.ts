@@ -74,3 +74,17 @@ export async function drainOutbox(url: string, send: (item: OutboxItem) => Promi
   }
   return { sent, failed };
 }
+
+/**
+ * Runs `drain` at most once at a time. A caller that must go after any running drain (a live send
+ * keeping typed order) passes wait: true and is held until it finishes; others just return.
+ * Two overlapping drains used to deliver the same slow message twice.
+ */
+export function singleFlight(drain: () => Promise<void>) {
+  let running: Promise<void> | null = null;
+  return async (opts: { wait?: boolean } = {}) => {
+    if (running) { if (opts.wait) await running; return; }
+    running = drain().finally(() => { running = null; });
+    await running;
+  };
+}

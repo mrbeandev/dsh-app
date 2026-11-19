@@ -65,3 +65,17 @@ describe('offline outbox', () => {
     expect(seen).toHaveBeenCalled(); off();
   });
 });
+
+describe('one outbox drain at a time', () => {
+  it('never runs two drains together; a waiting caller resumes after it', async () => {
+    let active = 0, maxActive = 0, runs = 0; let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const flush = ob.singleFlight(async () => { runs++; active++; maxActive = Math.max(maxActive, active); await gate; active--; });
+    const first = flush();
+    const skipped = flush();            // timer tick while the first drain is still uploading
+    let waited = false; const send = flush({ wait: true }).then(() => { waited = true; });
+    await skipped; expect(waited).toBe(false);
+    release(); await first; await send;
+    expect(runs).toBe(1); expect(maxActive).toBe(1); expect(waited).toBe(true);
+  });
+});

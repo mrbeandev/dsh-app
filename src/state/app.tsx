@@ -5,15 +5,31 @@ import * as Network from 'expo-network';
 import { deviceIsOffline } from '../lib/connectivity';
 import { enforceCacheLimit } from '../lib/cacheLimit';
 import { errorMessage, HarnessClient, isTransportError } from '../lib/harness';
-import { drainOutbox, type OutboxItem } from '../lib/outbox';
+import { drainOutbox, singleFlight, type OutboxItem } from '../lib/outbox';
+
+
 import { Connection, Frame, Session } from '../lib/protocol';
-import { applyBaseline, mergeRefreshed, withValues } from '../lib/projections';
+import { applyBaseline, mergeRefreshed, projectionChanges, withValues } from '../lib/projections';
 import { cacheEpoch, readCatalog, writeCatalog, clearWorkspaceHistory } from '../lib/cache';
 import { light, dark, type SolidGlassColors } from '../lib/solidGlass';
+
+/** Per-client single-flight outbox drains, outside React state. */
+type Drain = { run: () => Promise<void>; flush: (o?: { wait?: boolean }) => Promise<void> };
+const outboxDrains = new WeakMap<HarnessClient, Drain>();
+function outboxDrain(c: HarnessClient, run: () => Promise<void>, opts: { wait?: boolean }): Promise<void> {
+  let d = outboxDrains.get(c);
+  if (!d) {
+    const entry: Drain = { run, flush: async () => {} };
+    entry.flush = singleFlight(() => entry.run());
+    outboxDrains.set(c, entry); d = entry;
+  }
+  d.run = run;
+  return d.flush(opts);
+}
 type ThemeMode = 'system' | 'light' | 'dark';
 export type Colors = SolidGlassColors;
 const noWorkspaceList = new Set<string>();
-type AppState = { flushOutbox: () => Promise<void>; client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; deviceOffline: boolean; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
+type AppState = { flushOutbox: (opts?: { wait?: boolean }) => Promise<void>; client: HarnessClient | null; sessions: Session[]; workspaces: Frame[]; archived: string[]; pinned: string[]; status: string; deviceOffline: boolean; savedUrl: string; loading: boolean; pending: Frame[]; onSessionStatus: (fn: (id: string, running: boolean) => void) => () => void; lastSync: () => number; resync: () => Promise<void>; applyProjections: (sessionId: string, values: Record<string, unknown>) => void; theme: ThemeMode; colors: Colors; connect: (c: Connection) => Promise<void>; disconnect: () => Promise<void>; refresh: () => Promise<void>; refreshWorkspace: (ids: string[]) => Promise<void>; setTheme: (t: ThemeMode) => void; dismiss: (id: string) => void };
 const Context = createContext<AppState | null>(null);
 const credentials = { read: async () => Platform.OS === 'web' ? null : SecureStore.getItemAsync('dsh.connection'), save: async (c: Connection) => { if (Platform.OS !== 'web') await SecureStore.setItemAsync('dsh.connection', JSON.stringify(c)); }, clear: async () => { if (Platform.OS !== 'web') await SecureStore.deleteItemAsync('dsh.connection'); } };
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -62,15 +78,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshFlight.current = task; try { await task; } finally { if (refreshFlight.current === task) refreshFlight.current = null; }
   }, []);
   // Offline outbox: messages typed while disconnected are delivered here, in order, once connected.
-  const draining = useRef(false);
-  const flushOutbox = useCallback(async () => {
-    const c = current.current; if (!c || draining.current || offlineRef.current) return;
-    draining.current = true;
-    try {
+  // One drain at a time per Harness connection (see outboxDrains): a live send that must follow waiting
+  // messages waits for the running drain instead of starting a second one.
+  const flushOutbox = useCallback(async (opts: { wait?: boolean } = {}) => {
+    const c = current.current; if (!c || offlineRef.current) return;
+    await outboxDrain(c, async () => {
       const deliver = (item: OutboxItem) => c.request('session/prompt', { requestId: item.id, sessionId: item.sessionId, mode: item.mode, content: item.parts, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(() => {});
       const { sent } = await drainOutbox(c.connection.url, deliver, isTransportError, errorMessage);
       if (sent) void refresh().catch(() => {});
-    } finally { draining.current = false; }
+    }, opts);
   }, [refresh]);
   const connect = useCallback(async (connection: Connection) => {
     const next = new HarnessClient(connection); await next.authenticate(); await credentials.save(next.connection);
@@ -100,7 +116,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Baseline: { projections: { [sessionId]: { asOfSeq, values } } } — merge the inner `values`.
       // (Spreading the whole entry put every key under values.values, so the queue never showed.)
       if (frame.type === 'baseline') { catalog.current.sessions = applyBaseline(catalog.current.sessions, frame.value); setSessions(catalog.current.sessions); persist(); }
-      if (frame.type === 'projection') { catalog.current.sessions = catalog.current.sessions.map(s => s.sessionId === frame.sessionId ? { ...s, projections: { ...s.projections, values: { ...s.projections?.values, [frame.key]: frame.value } } } : s); setSessions(catalog.current.sessions); persist(); }
+      if (frame.type === 'projection') { const changed = projectionChanges(frame as never); catalog.current.sessions = catalog.current.sessions.map(s => s.sessionId === frame.sessionId ? withValues(s, changed) : s); setSessions(catalog.current.sessions); persist(); }
     });
     next.follow('workspace/follow', {}, frame => {
       // Official workspace/follow frames: baseline { items, archivedSessionIds, pinnedSessionIds } then increments.

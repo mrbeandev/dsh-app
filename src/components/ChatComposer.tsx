@@ -22,6 +22,9 @@ import { useLayoutDiagnostics } from '../lib/useLayoutDiagnostics';
 /** Toolbar targets grow sideways/downwards only, never up into the text field above them. */
 const DOWN_SLOP = { top: 0, bottom: 8, left: 4, right: 4 };
 
+/** Press at least this long on Send to use the other action (steer or queue). */
+const HOLD_MS = 350;
+
 export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, running, busy, disabled, offline = false, imports = [], onImport, onAttachMedia, onRemoveImport, onRetryImport }: { sessionId: string; draft: string; onChange: (v: string) => void; onSend: (mode?: 'queue' | 'steer') => void; onStop: () => void; running: boolean; busy: boolean; disabled: boolean; offline?: boolean; imports?: ImportItem[]; onImport?: (category: ImportCategory) => void; onAttachMedia?: (assets: DocumentPicker.DocumentPickerAsset[]) => void; onRemoveImport?: (id: string) => void; onRetryImport?: (id: string) => void }) {
   const { colors, sessions, client } = useApp(); const sendMode = useSendMode(); const [picker, setPicker] = useState(false); const [chosen, setChosen] = useState<ModelChoice | null>(null);
   const diagnosticRef = useLayoutDiagnostics('composer.bounds');
@@ -33,7 +36,17 @@ export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, runni
   // Always the model's display name (from the Harness catalog), never its id, plus its reasoning level.
   const { name: model, level } = useModelLabel(client, current?.model, current?.provider, current?.reasoningEffort);
   const [importOpen, setImportOpen] = useState(false);
+  // Sending clears the box, which turns Send into Stop under the same finger. A long-press (steer) or a
+  // double tap then landed on Stop and aborted the turn the message was steering. Keep Stop unarmed
+  // for a moment after any send.
+  const [justSent, setJustSent] = useState(false);
+  useEffect(() => { if (!justSent) return; const t = setTimeout(() => setJustSent(false), 1500); return () => clearTimeout(t); }, [justSent]);
   const stop = running && !offline && !draft.trim() && !imports.length;
+  const send = (mode: 'queue' | 'steer') => { setJustSent(true); onSend(mode); };
+  // Hold-to-switch (steer ↔ queue) is decided on release from the press length. Pressable's onLongPress
+  // didn't fire on the composer's Send (the press arrived as a plain tap and always queued), so the
+  // steer never happened.
+  const pressStart = useRef(0);
   const canSend = !busy && !disabled && (stop || (imports.every(i => i.state === 'ready') && (!!draft.trim() || !!imports.length)));
   const inputRef = useRef<TextInput>(null);
   const [focused, setFocused] = useState(false);
@@ -52,7 +65,7 @@ export function ChatComposer({ sessionId, draft, onChange, onSend, onStop, runni
   }, [expanded, reveal]);
   // While the agent works, a tap uses the preferred mode (Settings › Chat) and a long-press the other one.
   const action = sendActions(sendMode);
-  const sendButton = <Pressable accessibilityRole="button" accessibilityLabel={stop ? 'Stop' : offline ? 'Save to send when online' : running ? (action.tap === 'steer' ? 'Steer message' : 'Queue message') : 'Send'} accessibilityHint={running && !stop ? (action.tap === 'steer' ? 'Long-press to queue: deliver after this turn instead of at the next step' : 'Long-press to steer: deliver at the agent’s next step instead of after this turn') : undefined} disabled={!canSend} onPress={stop ? onStop : () => onSend(running && !offline ? action.tap : 'queue')} onLongPress={running && !stop && !offline ? () => onSend(action.longPress) : undefined} delayLongPress={350} hitSlop={DOWN_SLOP} style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend && !stop ? colors.text : pressed ? colors.state : 'transparent', opacity: pressed ? 0.7 : 1 })}><Ionicons name={stop ? 'stop' : 'arrow-up'} size={stop ? 12 : 19} color={canSend && !stop ? colors.bg : canSend ? colors.muted : colors.tertiary} /></Pressable>;
+  const sendButton = <Pressable accessibilityRole="button" accessibilityLabel={stop ? 'Stop' : offline ? 'Save to send when online' : running ? (action.tap === 'steer' ? 'Steer message' : 'Queue message') : 'Send'} accessibilityHint={running && !stop ? (action.tap === 'steer' ? 'Long-press to queue: deliver after this turn instead of at the next step' : 'Long-press to steer: deliver at the agent’s next step instead of after this turn') : undefined} disabled={!canSend} onPressIn={() => { pressStart.current = Date.now(); }} onPress={stop ? (justSent ? undefined : onStop) : () => { const held = Date.now() - pressStart.current >= HOLD_MS; send(running && !offline ? (held ? action.longPress : action.tap) : 'queue'); }} hitSlop={DOWN_SLOP} style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend && !stop ? colors.text : pressed ? colors.state : 'transparent', opacity: pressed ? 0.7 : 1 })}><Ionicons name={stop ? 'stop' : 'arrow-up'} size={stop ? 12 : 19} color={canSend && !stop ? colors.bg : canSend ? colors.muted : colors.tertiary} /></Pressable>;
   return <>
     <View ref={diagnosticRef} collapsable={false} onLayout={e => diagnostic('composer.layout', { ...e.nativeEvent.layout })} style={{ paddingHorizontal: 10, paddingTop: 6, paddingBottom: 4 }}>
       <AttachmentTray items={imports} onRemove={onRemoveImport} onRetry={onRetryImport} />

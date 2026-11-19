@@ -43,16 +43,21 @@ import { listDirectory } from '../../lib/workspaceFiles';
 import { expandStream, streamText } from '../../lib/stream';
 import { liteEvent, sameRecords } from '../../lib/lite';
 import { coverage, eventsBetween, putEvents } from '../../lib/eventStore';
-import { backfill, markInteraction, turnEvents } from '../../lib/historySync';
+import { backfill, markInteraction, recentPage, turnEvents } from '../../lib/historySync';
 import { StepDetailContext } from '../../components/stepDetail';
 import { rememberSession } from '../../lib/recentSession';
 import { useImports } from '../../lib/useImports';
 import { JobsChip } from '../../components/JobsPanel';
 import { promptWithImports, type ImportItem, type PromptPart } from '../../lib/imports';
+import { SendingBubble } from '../../components/SendingBubble';
+import { sendStatus } from '../../lib/sendStatus';
 import { diagnostic } from '../../lib/diagnostics';
 
 /** List anchoring (keeps your place as new messages arrive); paused while a row expands. */
 const MVCP = { minIndexForVisible: 0, autoscrollToTopThreshold: 80 } as const;
+/** Messages in the live stream's first frame (kept small for slow tunnels; see follow). */
+const LIVE_SNAPSHOT_MESSAGES = 4;
+
 export default function Thread() {
   const { id, harness } = useLocalSearchParams<{ id: string; harness?: string }>();
   // Tablet split view: the chat lives in the right pane of the home screen instead of its own route.
@@ -109,7 +114,7 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
   }), []);
   const atBottom = useRef(true); const userScrolled = useRef(false); const [jumpVisible, setJumpVisible] = useState(false); const jumpShown = useRef(false);
   const [records, setRecords] = useState<WireEvent[]>([]); const [live, setLive] = useState('');
-  const [sending, setSending] = useState<{ key: string; text: string }[]>([]);
+  const [sending, setSending] = useState<{ key: string; text: string; mode: 'queue' | 'steer'; progress?: number; bytes?: number }[]>([]);
   const [error, setError] = useState(''); const [running, setRunning] = useState(false); const [cursor, setCursor] = useState(-1); const [hasMore, setHasMore] = useState(false);
   const list = useRef<FlatList>(null); const target = useRef<View>(null); const liveChunks = useRef<Map<number, Frame>>(new Map());
   const attempt = useRef<{ id: string; next: number; valid: boolean }>({ id: '', next: 0, valid: false });
@@ -139,7 +144,11 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
     void readHistory(harnessUrl, id).then(cached => { diagnostic('chat.open', { phase: 'cache', durationMs: Date.now() - openedAt, count: cached?.records.length ?? 0 }); if (active && !receivedLive && cached) { cached = { ...cached, records: cached.records.map(liteEvent) }; history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
     liveChunks.current.clear();
     if (!client || client.connection.url !== harnessUrl) return () => { active = false; };
-    const stop = client.follow('session/follow', { request: { address, maxMessages: 24, assistantStream: true } }, frame => {
+    // Keep the live stream's first frame small. A 24-message snapshot is ~80 KB: on a slow tunnel it takes
+    // longer to arrive than the Harness's socket heartbeat allows (two missed 2 s pings), so the whole
+    // socket was dropped every ~10 s in a chat — queue/steer updates then lagged or vanished. The rest of
+    // the recent history comes over plain HTTPS right after (topUp below), which has no heartbeat.
+    const stop = client.follow('session/follow', { request: { address, maxMessages: LIVE_SNAPSHOT_MESSAGES, assistantStream: true } }, frame => {
       if (frame.type === 'stream-error') { setError(frame.error.message); setSyncFailed(true); return; }
       if (frame.type === 'snapshot') {
         receivedLive = true; setHistoryState('live'); setSyncFailed(false); diagnostic('chat.open', { phase: 'snapshot', durationMs: Date.now() - openedAt, count: frame.records?.length ?? 0 });
@@ -161,7 +170,17 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
         setRecords(prev => sameRecords(prev, lite) ? prev : lite); setCursor(frame.cursor); setHasMore(more);
         // Keep the phone's copy of this chat complete: page older history in quietly.
         sync.abort(); sync = new AbortController();
-        if (frame.hasMore) void backfill(client, harnessUrl, id, address, frame.cursor, sync.signal).catch(() => {}); liveChunks.current.clear(); setLive('');
+        if (frame.hasMore) {
+          const signal = sync.signal;
+          void recentPage(client, address, frame.cursor, lite[0]?.seq, 24 - LIVE_SNAPSHOT_MESSAGES).then(page => {
+            if (signal.aborted || !page) return;
+            void putEvents(harnessUrl, id, page.full, { reachedStart: !page.hasMore }, epoch).catch(() => {});
+            const merged = [...page.full.map(liteEvent).filter(e => !history.current.records.some(x => x.seq === e.seq)), ...history.current.records].sort((a, b) => a.seq - b.seq);
+            history.current = { ...history.current, records: merged, hasMore: page.hasMore }; save();
+            setRecords(merged); setHasMore(page.hasMore);
+          }).catch(() => {}).then(() => backfill(client, harnessUrl, id, address, frame.cursor, signal)).catch(() => {});
+        }
+        liveChunks.current.clear(); setLive('');
         const active = frame.assistantStream?.activeAttempt;
         const chunks = expandStream(active?.stream);
         attempt.current = { id: active?.attemptId ?? '', next: active?.nextIndex ?? 0, valid: !!active && chunks.length === active.nextIndex };
@@ -290,7 +309,11 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
     load(); const off = onOutboxChange(load);
     return () => { live = false; off(); };
   }, [harnessUrl, id]);
-  const connected = !!client && status === 'connected';
+  // The live socket can blip on slow tunnels (the Harness drops a socket that misses two 2 s heartbeats)
+  // while plain HTTPS requests keep working. Sending only needs HTTPS, so a reconnecting socket is not
+  // "offline": only no network at all, or no client. (Before, every blip sent messages to the offline
+  // outbox and disabled hold-to-steer, so steers queued after the turn.)
+  const connected = !!client && !deviceOffline && status !== 'offline' && status !== 'disconnected';
   const queueOffline = async (content: string, parts: PromptPart[], mode: 'queue' | 'steer', key: string, selected: ImportItem[]) => {
     if (!harnessUrl) throw new Error('Not connected to a Harness.');
     await enqueue({ id: key, url: harnessUrl, sessionId: id, text: content || selected.map(i => `Attachment: ${i.name}`).join('\n'), parts, mode });
@@ -309,22 +332,28 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
       catch (e) { setDraft(d => d.trim() ? d : content); imports.setItems(current => [...selected, ...current]); setError(errorMessage(e)); }
       return;
     }
-    setSending(s => [...s, { key, text: [content, ...selected.map(i => `Attachment: ${i.name}`)].filter(Boolean).join('\n') }]); scrollToBottom();
+    setSending(s => [...s, { key, mode, text: [content, ...selected.map(i => `Attachment: ${i.name}`)].filter(Boolean).join('\n'), ...(selected.some(i => i.part?.type === 'image') ? { progress: 0 } : {}) }]); scrollToBottom();
     try {
       // Messages already waiting go first so the order you typed them in is kept.
-      if (outbox.length) await flushOutbox();
+      if (outbox.length) await flushOutbox({ wait: true });
       // Commands have a separate strict write path; unregistered slash names remain prompts (skills).
       const name = content.match(/^\/(\S+)/)?.[1];
       const commands = name ? await client!.call('commands/list', { agentId: id }) : null;
       const catalog = Array.isArray(commands) ? commands : commands?.commands ?? [];
       if (name && catalog.some((c: any) => c.name === name || c.id === name || c.name === `/${name}`)) await client!.call('commands/execute', { agentId: id, line: content, submittedAttachments: parts.filter(p => p.type !== 'text') });
-      else await client!.request('session/prompt', { requestId: key, sessionId: id, mode, content: parts, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      else {
+        // Images make a large request: report upload progress on the bubble (fetch can't; XHR can).
+        const big = parts.some(p => p.type === 'image');
+        await client!.request('session/prompt', { requestId: key, sessionId: id, mode, content: parts, clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+          big ? { onUploadProgress: f => setSending(s => s.map(x => x.key === key ? { ...x, progress: f } : x)) } : {});
+      }
       // Accepted: only now is the saved draft discarded (a failure below restores it instead).
       if (harnessUrl) void clearDraft(harnessUrl, id);
       imports.sent(selected);
       setRunning(true); scrollToBottom();
-      // Keep the bubble until the Harness echoes the message (or a queue row shows it), max 8 s.
-      setTimeout(() => setSending(s => s.filter(x => x.key !== key)), 8000);
+      // The bubble now stays (showing Steering/Queued) until the message is written into the chat.
+      // Safety net only: drop it after 10 min if the chat never shows it (e.g. the session was reset).
+      setTimeout(() => setSending(s => s.filter(x => x.key !== key)), 600_000);
     } catch (e) {
       setSending(s => s.filter(x => x.key !== key));
       // The connection dropped mid-send: don't lose it — move it to the outbox (same request id, so no duplicate).
@@ -349,11 +378,20 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
   const echoed = useMemo(() => {
     const ids = new Set<string>();
     for (const e of records) { const src: any = (e.data as any)?.source ?? (e.data as any)?.message?.source; if (src?.rpcId) ids.add(String(src.rpcId)); }
-    const inbox = (projectionValues as any)?.inbox;
-    for (const m of [...(inbox?.['next-turn'] ?? []), ...(inbox?.['next-step'] ?? [])]) if (m?.source?.rpcId) ids.add(String(m.source.rpcId));
-    return ids;
-  }, [records, projectionValues]);
-  const pendingSends = sending.filter(s => !echoed.has(s.key));
+    return ids; // messages already written into the chat
+  }, [records]);
+  const inboxState = useMemo(() => {
+    const inbox = (projectionValues as any)?.inbox; const m = new Map<string, 'steering' | 'queued'>();
+    for (const x of inbox?.['next-step'] ?? []) if (x?.source?.rpcId) m.set(String(x.source.rpcId), 'steering');
+    for (const x of inbox?.['next-turn'] ?? []) if (x?.source?.rpcId) m.set(String(x.source.rpcId), 'queued');
+    return m;
+  }, [projectionValues]);
+  // A bubble stays while the message is only on this phone (uploading/delivering). Once the Harness
+  // has it, the queue panel (steering/queued) or the chat itself shows it.
+  const pendingSends = sending.filter(s => !echoed.has(s.key) && !outbox.some(o => o.id === s.key));
+  // An outbox message the Harness already accepted (its request id is echoed) is just waiting for the
+  // outbox to notice; don't show it twice.
+  const visibleOutbox = outbox.filter(o => !echoed.has(o.id) && !inboxState.has(o.id));
   // Stop = cancel the running turn. The Harness keeps queued messages (session/cancel keeps the inbox)
   // but does not start a turn for them, so they'd sit in the queue. Expected behaviour (user): the
   // next queued message goes in as the next prompt. So after the cancel lands and the agent is idle,
@@ -479,7 +517,7 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
           onScrollToIndexFailed={info => { list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); setTimeout(() => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.35, animated: true }), 120); }}
           keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled"
           contentContainerStyle={[{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: hasMore ? 0 : 62 }, readable(wide)]}
-          ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{[...outbox].reverse().map(o => <Pressable key={o.id} accessibilityRole="button" accessibilityLabel={o.error ? `Couldn’t send: ${o.text}` : `Waiting to send: ${o.text}`} accessibilityHint="Tap for options" onPress={() => outboxMenu(o)} style={({ pressed }) => ({ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, borderWidth: 1, borderStyle: 'dashed', borderColor: o.error ? colors.danger : colors.border, opacity: pressed ? 0.6 : 0.85 })}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 }}><Ionicons name={o.error ? 'alert-circle-outline' : connected ? 'arrow-up-circle-outline' : 'time-outline'} size={12} color={o.error ? colors.danger : colors.muted} /><T style="caption2" color={o.error ? 'danger' : 'secondary'}>{o.error ? 'Couldn’t send · tap for options' : connected ? 'Sending…' : 'Waiting for connection'}</T></View><T style="footnote" numberOfLines={6}>{o.text}</T></Pressable>)}{pendingSends.map(s => <View key={s.key} style={{ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, opacity: 0.75 }}><T style="caption2" color="secondary">You · Sending…</T><T style="footnote" numberOfLines={6}>{s.text}</T></View>)}{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={p.eventId} frame={p} /> : <PendingRequest key={p.eventId} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
+          ListHeaderComponent={<View style={{ gap: 12, marginBottom: 2 }}>{[...visibleOutbox].reverse().map(o => <Pressable key={o.id} accessibilityRole="button" accessibilityLabel={o.error ? `Couldn’t send: ${o.text}` : `Waiting to send: ${o.text}`} accessibilityHint="Tap for options" onPress={() => outboxMenu(o)} style={({ pressed }) => ({ marginTop: 12, marginLeft: 40, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.bubble, borderWidth: 1, borderStyle: 'dashed', borderColor: o.error ? colors.danger : colors.border, opacity: pressed ? 0.6 : 0.85 })}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 }}><Ionicons name={o.error ? 'alert-circle-outline' : connected ? 'arrow-up-circle-outline' : 'time-outline'} size={12} color={o.error ? colors.danger : colors.muted} /><T style="caption2" color={o.error ? 'danger' : 'secondary'}>{o.error ? 'Couldn’t send · tap for options' : connected ? 'Sending…' : 'Waiting for connection'}</T></View><T style="footnote" numberOfLines={6}>{o.text}</T></Pressable>)}{pendingSends.map(s => <SendingBubble key={s.key} text={s.text} status={sendStatus(s, inboxState.get(s.key))} progress={s.progress} />)}{pending.filter(p => p.agentId === id).map(p => (planReviewOf(p) ? <PlanReview key={p.eventId} frame={p} /> : <PendingRequest key={p.eventId} frame={p} />))}{live ? <View style={{ marginTop: 12 }}><View style={{ marginBottom: 4 }}><T style="caption2" color="secondary">Assistant · working</T></View><MessageMarkdown text={live} /></View> : working && status === 'connected' ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, marginTop: 12 }}><Dots size="sm" /><T style="footnote" color="secondary">Working…</T></View> : null}</View>}
           ListFooterComponent={hasMore ? <View style={{ alignItems: 'center', paddingTop: 66, paddingBottom: 8 }}>{olderBusy ? <View accessibilityLabel="Loading earlier messages" style={{ height: 34, justifyContent: 'center' }}><Dots size="sm" /></View> : <Pressable accessibilityRole="button" accessibilityLabel="Load earlier messages" onPress={() => void older()} hitSlop={8} style={({ pressed }) => ({ height: 34, paddingHorizontal: 14, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: pressed ? colors.state : colors.panel, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border })}><Ionicons name="arrow-up" size={13} color={colors.muted} /><T style="caption1" color="secondary">Load earlier messages</T></Pressable>}</View> : null}
           renderItem={({ item, index }) => { const above = data[index + 1]; const quiet = (k?: string) => k === 'tool' || k === 'context' || k === 'system'; const gap = !above ? 0 : quiet(item.kind) && quiet(above.kind) ? 2 : 12; return <View style={{ marginTop: gap }}><ChatRow row={item} highlighted={highlight === item.id} onUserAction={client && status === 'connected' ? messageMenu : undefined} onReplyAction={replyMenu} /></View>; }} /></GestureDetector></MessageLinkContext.Provider></StepDetailContext.Provider></ChatScrollContext.Provider></Animated.View>}
         </View></GestureDetector>

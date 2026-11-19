@@ -24,3 +24,13 @@ describe('live projections (queue survives navigation)', () => {
     expect((a.projections?.values as any).inbox['next-turn']).toHaveLength(0);
   });
 });
+
+describe('live projection frames', () => {
+  it('reads Harness 0.2.2 change lists and the older single key/value frames', async () => {
+    const { projectionChanges } = await import('./projections');
+    const inbox = { 'next-step': [{ id: 'm1', source: { rpcId: 'r1' } }] };
+    expect(projectionChanges({ changes: [{ key: 'inbox', val: inbox }, { key: 'goal', val: null }] })).toEqual({ inbox, goal: null });
+    expect(projectionChanges({ key: 'inbox', value: inbox })).toEqual({ inbox });
+    expect(projectionChanges({})).toEqual({});
+  });
+});

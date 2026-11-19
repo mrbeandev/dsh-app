@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { isCanonicalBase64, prepareImport } from './upload';
-const mocks = vi.hoisted(() => ({ base64: vi.fn(async () => 'YWJj'), upload: vi.fn(), release: vi.fn() }));
+const mocks = vi.hoisted(() => ({ base64: vi.fn(async () => 'YWJj'), upload: vi.fn(), release: vi.fn(), manipulate: vi.fn() }));
 vi.mock('./diagnostics', () => ({ diagnostic: vi.fn() }));
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 vi.mock('expo-file-system', () => ({ File: class { size = 3; base64 = mocks.base64; }, UploadType: { BINARY_CONTENT: 0 }, UploadTask: class { uploadAsync = mocks.upload; release = mocks.release; } }));
+vi.mock('expo-image-manipulator', () => ({ ImageManipulator: { manipulate: mocks.manipulate }, SaveFormat: { JPEG: 'jpeg' } }));
 const client = { connection: { url: 'http://example.com' }, transferHeaders: { Cookie: 'session=value' } } as any;
 describe('native import preparation', () => {
   it('reads raster bytes without requiring AbortSignal.throwIfAborted', async () => {
@@ -38,5 +39,14 @@ describe('image base64 sent to the Harness', () => {
   it('gives a clear error when the image still can’t be read completely', async () => {
     mocks.base64.mockResolvedValueOnce('aGVsbG8').mockResolvedValueOnce('aGVsbG8');
     await expect(prepareImport(client, 's', png, { aborted: false } as AbortSignal, () => {})).rejects.toThrow(/attach it again/);
+  });
+});
+
+describe('request time limits', () => {
+  it('gives large messages time to upload over slow tunnels, capped at 10 minutes', async () => {
+    const { uploadTimeoutMs } = await import('./requestTimeout');
+    expect(uploadTimeoutMs(2_000)).toBe(21_000);            // small calls keep ~20 s
+    expect(uploadTimeoutMs(1_000_000)).toBe(120_000);       // two shrunk photos as base64 (~1 MB): 2 min
+    expect(uploadTimeoutMs(50_000_000)).toBe(600_000);      // capped at 10 min
   });
 });

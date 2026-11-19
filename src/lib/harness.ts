@@ -3,6 +3,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import { randomUUID } from 'expo-crypto';
 import { Connection, endpoint, Frame, normalizeConnection, rpcEnvelope } from './protocol';
 import { attachBinary, parseMultipart } from './multipart';
+import { uploadTimeoutMs } from './requestTimeout';
 import { diagnostic } from './diagnostics';
 import { friendlyNetworkError } from './connectivity';
 
@@ -10,6 +11,9 @@ export class HarnessError extends Error {
   constructor(public code: string, message: string) { super(message); }
 }
 /** True when a request never reached the Harness (offline, timeout, tunnel down, 5xx, expired login): safe to retry later. */
+/** An upload that sends no bytes for this long is treated as a dropped connection. */
+const STALL_MS = 30_000;
+export type CallOptions = { timeoutMs?: number; onUploadProgress?: (fraction: number) => void };
 export function isTransportError(e: unknown) {
   if (e instanceof HarnessError) return e.code === 'transport' || e.code === 'unauthenticated';
   return true; // fetch rejections (network/DNS/timeout/abort) carry no Harness error code
@@ -29,6 +33,7 @@ export class HarnessClient {
     else if (!this.closed && !this.socketOpen) this.connectStreams();
   }
   private attempts = 0;
+  private openedAt = 0;
   clientId = '';
   onStatus: (status: 'connected' | 'reconnecting' | 'disconnected') => void = () => {};
   /** Called whenever anything arrives from the Harness (stream frame or successful RPC). */
@@ -70,18 +75,57 @@ export class HarnessClient {
   }
   /** session/list request started by authenticate(); consumed once by the first refresh. */
   initialList: Promise<any> | null = null;
-  async call<T = any>(method: string, args: Record<string, unknown>): Promise<T> {
+  async call<T = any>(method: string, args: Record<string, unknown>, opts: CallOptions = {}): Promise<T> {
     const start = Date.now(); diagnostic('rpc.start', { method });
-    try { return await this.performCall<T>(method, args); }
+    try { return opts.onUploadProgress && Platform.OS !== 'web' ? await this.performCallWithProgress<T>(method, args, opts) : await this.performCall<T>(method, args, opts.timeoutMs); }
     catch (e) { diagnostic('rpc.error', { method, durationMs: Date.now() - start, code: e instanceof HarnessError ? e.code : 'transport' }); throw e; }
     finally { diagnostic('rpc.end', { method, durationMs: Date.now() - start }); }
   }
-  private async performCall<T = any>(method: string, args: Record<string, unknown>): Promise<T> {
+  /**
+   * Same RPC over XMLHttpRequest, which (unlike fetch) reports upload progress — used for messages with
+   * images so the bubble can show how much has gone up. Same cookie, envelope, timeout and errors.
+   */
+  private performCallWithProgress<T = any>(method: string, args: Record<string, unknown>, opts: CallOptions): Promise<T> {
     const rpcId = randomUUID();
+    const body = JSON.stringify(rpcEnvelope(method, args, rpcId));
+    return new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', endpoint(this.connection.url, `/api/${method}`));
+      // No total time limit while bytes are still going up (slow links can need minutes for photos): give
+      // up only when the upload stalls, or the reply doesn't come within the normal limit after it.
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const arm = (ms: number, why: string) => { clearTimeout(watchdog); watchdog = setTimeout(() => { xhr.abort(); reject(new HarnessError('transport', why)); }, ms); };
+      arm(STALL_MS, 'The upload stalled. Check your connection.');
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      if (this.cookie) xhr.setRequestHeader('Cookie', this.cookie);
+      xhr.withCredentials = true;
+      xhr.upload.onprogress = e => { arm(STALL_MS, 'The upload stalled. Check your connection.'); if (e.lengthComputable && e.total > 0) opts.onUploadProgress?.(e.loaded / e.total); };
+      xhr.upload.onload = () => { arm(opts.timeoutMs ?? 60_000, 'The Harness did not answer. Check your connection.'); opts.onUploadProgress?.(1); };
+      xhr.onerror = () => { clearTimeout(watchdog); reject(new Error(friendlyNetworkError('Network request failed'))); };
+      xhr.onabort = () => clearTimeout(watchdog);
+      xhr.onload = () => {
+        clearTimeout(watchdog);
+        try {
+          if (xhr.status === 401) throw new HarnessError('unauthenticated', 'Auth token expired. Reconnect with the current Harness token.');
+          if (xhr.status === 403) throw new HarnessError('forbidden', `Harness rejected this host (${hostOf(this.connection.url)}).`);
+          if (xhr.status === 404) throw new HarnessError('unavailable', 'This Harness does not support this feature.');
+          if (xhr.status < 200 || xhr.status >= 300) throw new HarnessError('transport', `Harness request failed (${xhr.status}).`);
+          const data = JSON.parse(xhr.responseText);
+          if (data.type !== 'server-response' || data.rpcId !== rpcId) throw new HarnessError('protocol', 'Unexpected Harness response.');
+          if (!data.result?.ok) throw new HarnessError(data.result?.error?.code ?? 'unknown', data.result?.error?.message ?? 'Harness request failed.');
+          this.onActivity(); resolve(data.result.value);
+        } catch (e) { reject(e); }
+      };
+      xhr.send(body);
+    });
+  }
+  private async performCall<T = any>(method: string, args: Record<string, unknown>, timeoutMs?: number): Promise<T> {
+    const rpcId = randomUUID();
+    const body = JSON.stringify(rpcEnvelope(method, args, rpcId));
     const response = await fetch(endpoint(this.connection.url, `/api/${method}`), {
-      method: 'POST', credentials: 'include', signal: AbortSignal.timeout(20000),
+      method: 'POST', credentials: 'include', signal: AbortSignal.timeout(timeoutMs ?? uploadTimeoutMs(body.length)),
       headers: { 'Content-Type': 'application/json', ...(Platform.OS !== 'web' && this.cookie ? { Cookie: this.cookie } : {}) },
-      body: JSON.stringify(rpcEnvelope(method, args, rpcId)),
+      body,
     });
     if (response.status === 401) throw new HarnessError('unauthenticated', 'Auth token expired. Reconnect with the current Harness token.');
     if (response.status === 403) throw new HarnessError('forbidden', `Harness rejected this host (${hostOf(this.connection.url)}). On the Harness, add it as a trusted host: start with "dsh web --trusted-host ${hostOf(this.connection.url)}" or add it to trustedHosts in ~/.dsh/profiles/web/cordis.patch.yml (see the app’s README).`);
@@ -93,7 +137,7 @@ export class HarnessClient {
     this.onActivity();
     return data.result.value;
   }
-  request<T = any>(method: string, request: Record<string, unknown>) { return this.call<T>(method, { request }); }
+  request<T = any>(method: string, request: Record<string, unknown>, opts: CallOptions = {}) { return this.call<T>(method, { request }, opts); }
   /** Binary Remote (e.g. workspaceFiles/readBytes): multipart response with JSON metadata + raw byte parts. */
   async callBinary<T = any>(method: string, args: Record<string, unknown>): Promise<T> {
     const rpcId = randomUUID();
@@ -123,7 +167,7 @@ export class HarnessClient {
     const Socket = WebSocket as any;
     this.socket = Platform.OS === 'web' ? new WebSocket(url) : new Socket(url, undefined, this.cookie ? { headers: { Cookie: this.cookie } } : undefined);
     this.socket!.onopen = () => {
-      this.attempts = 0;
+      this.attempts = 0; this.openedAt = Date.now();
       diagnostic('socket.state', { status: 'open', count: this.streams.size });
       for (const [streamId, stream] of this.streams) this.open(streamId, stream.endpoint, stream.args);
     };
@@ -134,14 +178,15 @@ export class HarnessClient {
         if (frame.type === 'error') { diagnostic('stream.error', { code: frame.error?.code ?? 'unknown' }); this.streams.get(frame.streamId)?.receive({ type: 'stream-error', error: frame.error }); }
       } catch { /* Ignore malformed frames, never execute server content. */ }
     };
-    this.socket!.onclose = () => {
+    this.socket!.onclose = (ev: { code?: number; reason?: string }) => {
+      diagnostic('socket.closed', { code: ev?.code ?? 0, status: String(ev?.reason ?? '').slice(0, 60).replace(/[^a-zA-Z0-9_.:/ -]/g, ''), durationMs: Date.now() - this.openedAt });
       this.clientId = '';
       if (!this.closed && !this.networkPaused) {
         diagnostic('socket.state', { status: 'reconnecting' }); this.onStatus('reconnecting');
         this.retry = setTimeout(() => this.connectStreams(), Math.min(1000 * 2 ** this.attempts++, 15000));
       }
     };
-    this.socket!.onerror = () => { this.socket?.close(); };
+    this.socket!.onerror = (ev: Event) => { diagnostic('socket.error', { status: String((ev as unknown as { message?: string })?.message ?? '').slice(0, 80).replace(/[^a-zA-Z0-9_.:/ -]/g, '') }); this.socket?.close(); };
   }
   private open(streamId: string, endpoint: string, args: Record<string, unknown>) {
     if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'open', streamId, endpoint, payload: { args } }));
