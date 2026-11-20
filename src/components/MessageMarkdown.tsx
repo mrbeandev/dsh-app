@@ -1,9 +1,11 @@
 import { createContext, memo, useContext, useState } from 'react';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image as RNImage, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Markdown, { MarkdownIt, type RenderRules } from 'react-native-markdown-display';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import { useApp, type Colors } from '../state/app';
+import { isWebImage, markdownImagePath } from '../lib/fileMedia';
+import { HarnessFileImage } from './HarnessFileImage';
 
 // Never execute HTML or load remote images automatically from model output.
 const parser = MarkdownIt({ html: false, linkify: true, typographer: false });
@@ -18,6 +20,14 @@ const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
  * screen provides a handler that opens them in Files; return true if the link was handled.
  */
 export const MessageLinkContext = createContext<((href: string) => boolean) | null>(null);
+/** The session's working folder, for images linked by a relative path. */
+export const MessageDirContext = createContext<string | null>(null);
+
+function WebImage({ uri, alt }: { uri: string; alt?: string }) {
+  const { colors } = useApp(); const [ratio, setRatio] = useState(16 / 10); const [failed, setFailed] = useState(false);
+  if (failed) return <Text style={{ color: colors.muted }}>{`Image: ${alt || uri}`}</Text>;
+  return <RNImage source={{ uri }} accessibilityLabel={alt || 'Image'} onLoad={e => { const { width, height } = e.nativeEvent.source; if (width && height) setRatio(width / height); }} onError={() => setFailed(true)} resizeMode="contain" style={{ width: '100%', aspectRatio: ratio, maxHeight: 420, borderRadius: 10, marginVertical: 6, backgroundColor: colors.fill }} />;
+}
 
 /** Fenced code block: header with language + copy action, horizontally scrollable monospace body. */
 function CodeBlock({ code, lang, colors }: { code: string; lang?: string; colors: Colors }) {
@@ -36,9 +46,16 @@ function CodeBlock({ code, lang, colors }: { code: string; lang?: string; colors
 }
 
 export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: string }) {
-  const { colors } = useApp(); const openLocal = useContext(MessageLinkContext);
+  const { colors } = useApp(); const openLocal = useContext(MessageLinkContext); const sessionDir = useContext(MessageDirContext);
   const rules: RenderRules = {
-    image: node => <Text key={node.key} style={{ color: colors.muted }}>Image: {node.attributes.alt || 'attachment'} (not downloaded)</Text>,
+    // Images the agent links: files on the Harness (absolute, or relative to the session folder) load
+    // from its /api/file like the web UI; web images load directly; anything else stays a caption.
+    image: node => {
+      const src = String(node.attributes.src ?? ''); const alt = String(node.attributes.alt ?? '');
+      if (isWebImage(src)) return <WebImage key={node.key} uri={src} alt={alt} />;
+      const path = markdownImagePath(src, sessionDir ?? undefined);
+      return path ? <HarnessFileImage key={node.key} path={path} alt={alt} /> : <Text key={node.key} style={{ color: colors.muted }}>{`Image: ${alt || src || 'attachment'}`}</Text>;
+    },
     fence: node => <CodeBlock key={node.key} code={node.content.replace(/\n$/, '')} lang={(node as any).sourceInfo?.trim().split(/\s+/)[0]} colors={colors} />,
     code_block: node => <CodeBlock key={node.key} code={node.content.replace(/\n$/, '')} colors={colors} />,
     // Inline code: tinted monospace chip that stays on the text line.
