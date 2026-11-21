@@ -21,7 +21,7 @@ import { relativeTime } from '../lib/time';
 import { useActionMenu } from '../components/ActionMenu';
 import { useDialog } from '../components/Dialog';
 import { ChatPane } from './thread/[id]';
-import { SETTINGS_PANE, SIDEBAR_WIDTH, SplitPaneContext, getSplitSelection, lastSplitChatId, setSplitSelection, subscribeSplitSelection, useLayout } from '../lib/layout';
+import { SETTINGS_PANE, SETTINGS_UPDATES_PANE, SIDEBAR_WIDTH, SplitPaneContext, getSplitSelection, lastSplitChatId, setSplitSelection, subscribeSplitSelection, useLayout } from '../lib/layout';
 import { SettingsPane } from './settings';
 
 type Filter = 'All' | 'Working';
@@ -42,7 +42,7 @@ export default function Home() {
       <SessionList selectedId={selected} onOpen={id => setSplitSelection(id)} onSettings={() => setSplitSelection(SETTINGS_PANE)} />
     </View>
     <View style={{ flex: 1 }}>
-      {selected === SETTINGS_PANE ? <SettingsPane panel onClose={() => setSplitSelection(lastSplitChatId())} />
+      {selected === SETTINGS_PANE || selected === SETTINGS_UPDATES_PANE ? <SettingsPane key={selected} panel focus={selected === SETTINGS_UPDATES_PANE ? 'updates' : undefined} onClose={() => setSplitSelection(lastSplitChatId())} />
         : selected ? <SplitPaneContext.Provider value={pane}><ChatPane key={selected} id={selected} harness={client?.connection.url ?? savedUrl ?? undefined} /></SplitPaneContext.Provider>
         : <Screen edges={['top']}><Empty icon="chatbubbles-outline" title="Pick a Session" detail="Choose a session on the left, or start a new task." /></Screen>}
     </View>

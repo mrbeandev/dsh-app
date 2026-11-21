@@ -1,6 +1,6 @@
 import { Linking, ScrollView, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 import { clearCache, formatBytes, listCaches } from '../lib/cache';
 import { CACHE_LIMIT_OPTIONS, enforceCacheLimit, getCacheLimitMb, limitLabel, setCacheLimitMb } from '../lib/cacheLimit';
 import { useActionMenu } from '../components/ActionMenu';
@@ -14,10 +14,14 @@ import { NotificationSection } from '../components/NotificationSettings';
 import { DiagnosticSettings } from '../components/DiagnosticSettings';
 
 /** Settings as an iOS grouped-inset list (HIG › Lists and tables). */
-export default function Settings() { return <SettingsPane />; }
+export default function Settings() { const { section } = useLocalSearchParams<{ section?: string }>(); return <SettingsPane focus={section} />; }
 
 /** Settings. Full screen (route) on phones; in the split view's right pane on wide windows (`panel`). */
-export function SettingsPane({ panel, onClose }: { panel?: boolean; onClose?: () => void } = {}) {
+export function SettingsPane({ panel, onClose, focus }: { panel?: boolean; onClose?: () => void; focus?: string } = {}) {
+  // Opened from the update banner (?section=updates): scroll straight to App Updates once it's laid out.
+  const scrollRef = useRef<ScrollView>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const onUpdatesLayout = (y: number) => { if (focus === 'updates' && !scrolled) { setScrolled(true); requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true })); } };
   const { colors, theme, setTheme, client, disconnect, status } = useApp();
   const dialog = useDialog();
   const [caches, setCaches] = useState<{ url: string; bytes: number }[]>([]);
@@ -47,7 +51,7 @@ export function SettingsPane({ panel, onClose }: { panel?: boolean; onClose?: ()
     try { await clearCache(url); setCaches(await listCaches()); } catch { await dialog.alert('Couldn’t Clear Cache', 'Please try again.', 'danger'); }
   };
   const host = client ? new URL(client.connection.url).host : '';
-  return <Screen readable>{panel ? <Header title="Settings" leading={<IconButton icon="close" size={18} label="Close settings" onPress={() => onClose?.()} />} /> : <Header title="Settings" back />}<ScrollView contentContainerStyle={s.body}>
+  return <Screen readable>{panel ? <Header title="Settings" leading={<IconButton icon="close" size={18} label="Close settings" onPress={() => onClose?.()} />} /> : <Header title="Settings" back />}<ScrollView ref={scrollRef} contentContainerStyle={s.body}>
     <Section header="Harness">
       <Row icon="server-outline" title={host || 'Connect Harness'} subtitle={host ? (status === 'connected' ? 'Connected' : status[0].toUpperCase() + status.slice(1)) : 'URL and auth token'} onPress={() => router.push('/connect')} />
       {client ? <Row icon="log-out-outline" title="Disconnect" destructive chevron={false} onPress={() => void dialog.confirm({ title: 'Disconnect?', message: 'Your saved token is removed from this device. Cached chats stay until you clear them.', confirm: 'Disconnect', destructive: true, icon: 'log-out-outline' }).then(ok => { if (ok) void disconnect().then(() => router.replace('/')); })} /> : null}
@@ -65,7 +69,7 @@ export function SettingsPane({ panel, onClose }: { panel?: boolean; onClose?: ()
       {caches.length ? caches.map(cache => <Row key={cache.url} icon="archive-outline" iconTint={colors.muted} title={new URL(cache.url).host} value={formatBytes(cache.bytes)} chevron={false} onPress={() => void remove(cache.url)} accessory={<T style="subhead" color="danger">Clear</T>} />) : <Row title="No cached data" chevron={false} />}
     </Section>
     <NotificationSection />
-    <UpdateSection />
+    <View collapsable={false} onLayout={e => onUpdatesLayout(e.nativeEvent.layout.y)}><UpdateSection /></View>
     <DiagnosticSettings />
     <Section header="About" footer="Native Solid Glass theme adapted from DeepLethe. Original screen patterns inspired by T3 Code Mobile; Harness protocol informed by DeepSeek Harness Mobile. MIT licensed.">
       <Row title="DSH Mobile on GitHub" icon="logo-github" iconTint={colors.text} onPress={() => void Linking.openURL('https://github.com/mrbeandev/dsh-app')} />

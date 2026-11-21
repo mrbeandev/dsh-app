@@ -3,7 +3,7 @@
     "name": "DSH Mobile",
     "scheme": "dsh-app",
     "slug": "dsh-app",
-    "version": "13.0.3",
+    "version": "13.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -26,7 +26,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 130003,
+      "versionCode": 130004,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ]

@@ -48,6 +48,8 @@ export function readable(wide: boolean, max = READABLE_MAX) {
 
 /** Split-view right pane value that shows Settings instead of a chat. */
 export const SETTINGS_PANE = '@settings';
+/** Settings in the split view, scrolled to App Updates (from the update banner). */
+export const SETTINGS_UPDATES_PANE = '@settings:updates';
 
 /**
  * The session shown in the split view's chat pane (or SETTINGS_PANE). A tiny external store so the /thread/[id]
@@ -59,7 +61,7 @@ let lastSplitChat: string | null = null;
 export function setSplitSelection(id: string | null) {
   if (id === splitSelection) return;
   splitSelection = id;
-  if (id && id !== SETTINGS_PANE) lastSplitChat = id;
+  if (id && id !== SETTINGS_PANE && id !== SETTINGS_UPDATES_PANE) lastSplitChat = id;
   for (const l of splitListeners) l();
 }
 export function getSplitSelection() { return splitSelection; }
