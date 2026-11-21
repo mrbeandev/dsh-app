@@ -8,18 +8,14 @@ import { Button, ErrorNotice, Header, Row, Screen, Section, s } from '../compone
 import { Sheet } from '../components/Sheet';
 import { FolderBrowser } from '../components/FolderBrowser';
 import { errorMessage } from '../lib/harness';
+import { ACCESS } from '../lib/access';
 
 /**
  * Fallback copy for built-in entries, taken verbatim from the DSH Web UI locale
  * (dsh-client-ui-permission-presets / dsh-client-ui-agent-preset). Any name or
  * description the Harness API returns always wins, so plugin-added personas show as in the Web UI.
  */
-const ACCESS: Record<string, { title: string; detail: string }> = {
-  'read-only': { title: 'Read Only', detail: 'Can read files; asks before changing anything' },
-  'workspace-write': { title: 'Workspace Write', detail: 'Edits inside the workspace; asks for anything else' },
-  'danger-full-access': { title: 'Full access', detail: 'No sandbox and no approval prompts' },
-  auto: { title: 'Auto review', detail: 'Full access with automatic review (experimental)' },
-};
+
 const PERSONA: Record<string, { title: string; detail: string }> = {
   standard: { title: 'Standard mode', detail: 'Work with code, files, and information. Suitable for most tasks, with search, editing, terminal commands, and other tools available as needed.' },
   ptc: { title: 'PTC mode', detail: 'Includes all Standard mode capabilities. Better suited to tasks that call tools in batches and then filter, organize, deduplicate, count, or summarize the results.' },

@@ -1,5 +1,5 @@
 import { memo, useContext, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { ChatScrollContext } from './chatScroll';
 import { StepDetailContext } from './stepDetail';
 import { AttachmentImage } from './AttachmentImage';
@@ -109,7 +109,8 @@ function Mono({ text, label, max = 4000, color }: { text: string; label?: string
   const body = text.length > max ? `${text.slice(0, max)}\n… ${text.length - max} more characters` : text;
   return <View>
     {label ? <View style={{ paddingHorizontal: 10, paddingTop: 7 }}><T style="caption2" color="tertiary" weight="600" styleOverride={{ letterSpacing: 0.5 }}>{label.toUpperCase()}</T></View> : null}
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}><Text selectable style={{ color: color ?? colors.muted, fontFamily: MONO, fontSize: 11, lineHeight: 16, paddingHorizontal: 10, paddingVertical: 7 }}>{body}</Text></ScrollView>
+    {/* Wrapped: a sideways ScrollView here couldn't be scrolled inside the chat's pinch/swipe gestures, so long lines were cut off. */}
+    <Text selectable style={{ color: color ?? colors.muted, fontFamily: MONO, fontSize: 11, lineHeight: 16, paddingHorizontal: 10, paddingVertical: 7 }}>{body}</Text>
   </View>;
 }
 

@@ -9,6 +9,9 @@ import { Button, ErrorNotice, Field, Header, IconButton, Row, Screen, Section, T
 import { ModelPicker } from '../../components/ModelPicker';
 import { Skeleton } from '../../components/Loader';
 import { errorMessage } from '../../lib/harness';
+import { ACCESS, ACCESS_WARNING, accessCatalog, accessTitle, needsAccessConfirm, setSessionAccess, type AccessOption } from '../../lib/access';
+import { useActionMenu } from '../../components/ActionMenu';
+import { useDialog } from '../../components/Dialog';
 import { sessionTitle } from '../../lib/protocol';
 import { coverage, storeStats } from '../../lib/eventStore';
 import { compact, contextUsage, duration, grouped, sessionStats, tokenUsage } from '../../lib/sessionStats';
@@ -39,6 +42,34 @@ export default function Details() {
  */
 export function DetailsPane({ id, panel, onClose }: { id: string; panel?: boolean; onClose?: () => void }) {
   const { client, sessions, refresh, savedUrl, colors, pinned } = useApp();
+  const menu = useActionMenu(); const dialog = useDialog();
+  const [accessOptions, setAccessOptions] = useState<AccessOption[] | null>(null);
+  const [accessBusy, setAccessBusy] = useState(false);
+  /** Change this session's access mode (Web UI parity: runs `/permission <preset>`). */
+  const chooseAccess = async (current: string) => {
+    if (!client || !id) return;
+    let options = accessOptions;
+    if (!options) { try { options = (await accessCatalog(client)).options; setAccessOptions(options); } catch (e) { setError(errorMessage(e)); return; } }
+    const apply = async (value: string) => {
+      if (value === current) return;
+      if (needsAccessConfirm(value) && !(await dialog.confirm({ title: `${accessTitle(value, options!.find(o => o.value === value)?.name)}?`, message: ACCESS_WARNING, confirm: 'Allow', destructive: true, icon: 'shield-outline' }))) return;
+      setAccessBusy(true); setError('');
+      try {
+        await setSessionAccess(client, id, value);
+        // Re-read this session's settings so the row shows the new mode straight away.
+        const r = await client.request<{ values: Values }>('session/projections', { sessionId: id }).catch(() => null);
+        if (r?.values) setLive(r.values);
+        void refresh();
+      }
+      catch (e) { setError(errorMessage(e)); }
+      finally { setAccessBusy(false); }
+    };
+    menu({ title: 'Access', subtitle: 'What the agent may do in this session without asking. Applies from its next step.', actions: options.map(o => ({
+      label: accessTitle(o.value, o.name), detail: o.description || ACCESS[o.value]?.detail,
+      icon: (o.value === current ? 'checkmark-circle' : o.value === 'read-only' ? 'eye-outline' : needsAccessConfirm(o.value) ? 'warning-outline' : 'create-outline') as 'checkmark-circle',
+      onPress: () => { void apply(o.value); },
+    })) });
+  };
   const session = sessions.find(x => x.sessionId === id);
   const [title, setTitle] = useState(session ? sessionTitle(session) : ''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [picker, setPicker] = useState(false);
   // Live projections (fresh numbers); fall back to whatever the cached session list carried.
@@ -96,7 +127,7 @@ export function DetailsPane({ id, panel, onClose }: { id: string; panel?: boolea
       <Row icon="sparkles-outline" title="Model" value={modelLabel || 'Default'} subtitle={[provider, level ? `Reasoning: ${level}` : ''].filter(Boolean).join(' · ') || undefined} onPress={client ? () => setPicker(true) : undefined} />
       {model ? <Row icon="pricetag-outline" title="Model ID" subtitle={provider ? `${provider} / ${model}` : model} chevron={false} copy={provider ? `${provider}/${model}` : model} /> : null}
       {values.agentPreset ? <Row icon="person-circle-outline" title="Persona" value={titleCase(String(values.agentPreset))} chevron={false} /> : null}
-      {values.permissions?.currentValue ? <Row icon="shield-checkmark-outline" title="Access" value={titleCase(String(values.permissions.currentValue))} chevron={false} /> : null}
+      {values.permissions?.currentValue ? <Row icon="shield-checkmark-outline" title="Access" value={accessBusy ? 'Changing…' : accessTitle(String(values.permissions.currentValue), accessOptions?.find(o => o.value === values.permissions.currentValue)?.name)} onPress={client && !accessBusy ? () => void chooseAccess(String(values.permissions.currentValue)) : undefined} /> : null}
       {session?.cwd ? <Row icon="folder-outline" title="Directory" subtitle={session.cwd} chevron={false} copy={session.cwd} /> : null}
       {client && session && !session.parentSessionId ? <Row icon={isPinned ? 'pin' : 'pin-outline'} title={isPinned ? 'Pinned to Top' : 'Pin to Top'} subtitle={isPinned ? 'Shown first in its workspace, on every device.' : undefined} selected={isPinned} chevron={false} onPress={() => void togglePin()} /> : null}
     </Section>

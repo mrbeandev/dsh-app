@@ -1,7 +1,8 @@
 import { createContext, memo, useContext, useState } from 'react';
-import { Image as RNImage, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image as RNImage, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Markdown, { MarkdownIt, type RenderRules } from 'react-native-markdown-display';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import * as Clipboard from 'expo-clipboard';
 import { useApp, type Colors } from '../state/app';
 import { isWebImage, markdownImagePath } from '../lib/fileMedia';
@@ -32,16 +33,28 @@ function WebImage({ uri, alt }: { uri: string; alt?: string }) {
 /** Fenced code block: header with language + copy action, horizontally scrollable monospace body. */
 function CodeBlock({ code, lang, colors }: { code: string; lang?: string; colors: Colors }) {
   const [copied, setCopied] = useState(false);
+  // Long lines wrap by default so the whole block is readable without scrolling. "No wrap" keeps
+  // the original layout and scrolls sideways; it uses the gesture-handler ScrollView because the
+  // chat sits inside pinch and swipe-back gesture handlers, which took the touch from the plain
+  // React Native ScrollView (the block could neither wrap nor scroll).
+  const [wrap, setWrap] = useState(true);
+  const long = code.split('\n').some(l => l.length > 40);
   const copy = () => { void Clipboard.setStringAsync(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
+  const body = <Text selectable style={{ color: colors.text, fontFamily: MONO, fontSize: 11.5, lineHeight: 17, paddingHorizontal: 12, paddingVertical: 10 }}>{code}</Text>;
+  const chip = ({ pressed }: { pressed: boolean }) => ({ flexDirection: 'row' as const, alignItems: 'center' as const, gap: 4, height: 26, paddingHorizontal: 8, borderRadius: 13, opacity: pressed ? 0.6 : 1 });
   return <View style={{ marginVertical: 6, borderRadius: 12, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.panel }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 12, paddingRight: 4, height: 30, backgroundColor: colors.fill, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
       <Text style={{ flex: 1, color: colors.muted, fontSize: 11, fontFamily: MONO }}>{lang || 'code'}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel={copied ? 'Copied' : 'Copy code'} onPress={copy} hitSlop={8} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, height: 26, paddingHorizontal: 8, borderRadius: 13, opacity: pressed ? 0.5 : 1 })}>
+      {long ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: wrap }} accessibilityLabel="Wrap long lines" onPress={() => setWrap(w => !w)} hitSlop={8} style={chip}>
+        <Ionicons name={wrap ? 'return-down-back-outline' : 'arrow-forward-outline'} size={13} color={colors.muted} />
+        <Text style={{ color: colors.muted, fontSize: 11 }}>{wrap ? 'Wrap' : 'No wrap'}</Text>
+      </Pressable> : null}
+      <Pressable accessibilityRole="button" accessibilityLabel={copied ? 'Copied' : 'Copy code'} onPress={copy} hitSlop={8} style={chip}>
         <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={13} color={copied ? colors.primary : colors.muted} />
         <Text style={{ color: copied ? colors.primary : colors.muted, fontSize: 11 }}>{copied ? 'Copied' : 'Copy'}</Text>
       </Pressable>
     </View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}><Text selectable style={{ color: colors.text, fontFamily: MONO, fontSize: 11.5, lineHeight: 17, paddingHorizontal: 12, paddingVertical: 10 }}>{code}</Text></ScrollView>
+    {wrap ? body : <GHScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>{body}</GHScrollView>}
   </View>;
 }
 
