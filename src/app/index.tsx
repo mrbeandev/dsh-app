@@ -23,6 +23,7 @@ import { useDialog } from '../components/Dialog';
 import { ChatPane } from './thread/[id]';
 import { SETTINGS_PANE, SETTINGS_UPDATES_PANE, SIDEBAR_WIDTH, SplitPaneContext, getSplitSelection, lastSplitChatId, setSplitSelection, subscribeSplitSelection, useLayout } from '../lib/layout';
 import { StatusBadge } from '../components/StatusBadge';
+import { workspaceStatus, workspaceStatusLabel } from '../lib/workspaceStatus';
 import { SettingsPane } from './settings';
 
 type Filter = 'All' | 'Working';
@@ -161,16 +162,16 @@ function SessionList({ selectedId, onOpen, onSettings }: { selectedId?: string |
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             {(['All', 'Working'] as const).map(x => { const on = filter === x; return <Pressable key={x} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setFilter(x)} hitSlop={slop(30)} style={({ pressed }) => ({ height: 30, paddingHorizontal: 12, borderRadius: 8, boxShadow: on ? `inset 0 1px 0 ${colors.rim}` : undefined, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: on ? colors.fill : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? colors.glassEdge : 'transparent', opacity: pressed ? 0.6 : 1 })}><T style="footnote" weight="500">{x}</T>{x === 'Working' && workingCount ? <T style="caption1" color="secondary">{workingCount}</T> : null}</Pressable>; })}
             <View style={{ flex: 1 }} />
-            <IconButton icon="information-circle-outline" size={18} tint={colors.muted} label="What the session markers mean" onPress={() => void dialog.alert('Session markers', 'Spinning green ring — the agent is still working.\nOrange dot with a pulsing glow — the agent needs your answer.\nBlue dot with a radiating ring — finished while you were away; you haven’t opened it yet.\n\n⑂ N on the right — how many subagents the session has. It turns green while any of them is working.')} />
+            <IconButton icon="information-circle-outline" size={18} tint={colors.muted} label="What the session markers mean" onPress={() => void dialog.alert('Session markers', 'Spinning green ring — the agent is still working.\nOrange dot with a pulsing glow — the agent needs your answer.\nBlue dot with a radiating ring — finished while you were away; you haven’t opened it yet.\n\nNext to a workspace name, the same badge shows the most urgent status of any session inside it (needs answer, then working, then finished), even when the workspace is collapsed.\n\n⑂ N on the right — how many subagents the session has. It turns green while any of them is working.')} />
           </View>
         </View></>}
-        renderSectionHeader={({ section }) => { const open = isOpen(section.id); const runningHere = section.sessions.some(working); return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 4, marginHorizontal: 12, marginTop: 7, marginBottom: open ? 3 : 0, borderRadius: 11, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, boxShadow: `inset 0 1px 0 ${colors.rim}` }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} sessions`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 32, paddingHorizontal: 5, borderRadius: 8, backgroundColor: pressed ? colors.state : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
+        renderSectionHeader={({ section }) => { const open = isOpen(section.id); const roll = workspaceStatus(section.sessions, { input: x => pending.some(p => p.agentId === x.sessionId), working, unseen: x => unseen.has(x.sessionId) }); return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 4, marginHorizontal: 12, marginTop: 7, marginBottom: open ? 3 : 0, borderRadius: 11, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, boxShadow: `inset 0 1px 0 ${colors.rim}` }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${section.title}, ${section.sessions.length} sessions${roll.kind !== 'none' ? `, ${workspaceStatusLabel(roll.counts)}` : ''}`} accessibilityState={{ expanded: open }} onPress={() => toggle(section.id)} style={({ pressed }) => ({ flex: 1, minHeight: 32, paddingHorizontal: 5, borderRadius: 8, backgroundColor: pressed ? colors.state : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 7, opacity: pressed ? 0.6 : 1 })}>
             <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={colors.muted} style={{ width: 12 }} />
             <Ionicons name={open ? 'folder-open-outline' : 'folder-outline'} size={14} color={colors.muted} />
             <T style="subhead" numberOfLines={1} styleOverride={{ flexShrink: 1 }}>{section.title}</T>
             <T style="caption1" color="secondary">{section.sessions.length}</T>
-            {runningHere ? <View accessible accessibilityLabel="Has a working session"><StatusBadge kind="working" size={10} /></View> : null}
+            {roll.kind !== 'none' ? <View accessible accessibilityLabel={workspaceStatusLabel(roll.counts)}><StatusBadge kind={roll.kind} size={10} /></View> : null}
           </Pressable>
           <WorkspaceAction icon="add" label={`New session in ${section.title}`} disabled={!client || !live} onPress={() => router.push({ pathname: '/new', params: { cwd: section.path } })} />
           <WorkspaceAction icon="ellipsis-horizontal" label={`Options for ${section.title}`} onPress={() => workspaceMenu(section)} />
