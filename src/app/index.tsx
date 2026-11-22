@@ -195,7 +195,7 @@ function SessionList({ selectedId, onOpen, onSettings }: { selectedId?: string |
               <SubagentToggle nodes={tree} open={!!subOpen[item.sessionId]} onToggle={() => setSubOpen(o => ({ ...o, [item.sessionId]: !o[item.sessionId] }))} />
               <T style="caption2" color="secondary">{relativeTime(item.updatedAt)}</T>
             </Pressable>
-            {subOpen[item.sessionId] && tree.length ? <SubagentBranches nodes={tree} live={live} onOpen={n => openThread(n.session.sessionId, client?.connection.url ?? savedUrl)} /> : null}
+            {subOpen[item.sessionId] && tree.length ? <SubagentBranches nodes={tree} live={live} status={sid => ({ input: pending.some(p => p.agentId === sid), unseen: unseen.has(sid) })} onOpen={n => openThread(n.session.sessionId, client?.connection.url ?? savedUrl)} /> : null}
           </View>;
         }}
         ListEmptyComponent={<View style={{ flex: 1, justifyContent: 'center', paddingTop: 40, gap: 20 }}>
