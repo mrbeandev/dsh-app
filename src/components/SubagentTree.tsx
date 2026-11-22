@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../state/app';
 import { T } from './ui';
 import { relativeTime } from '../lib/time';
+import { StatusBadge } from './StatusBadge';
 import { anyRunning, countTree, type SubagentNode } from '../lib/subagents';
 
 /**
@@ -32,7 +33,7 @@ function Branch({ node, live, onOpen }: { node: SubagentNode; live: boolean; onO
   return <View style={{ marginLeft: 12, paddingLeft: 8, borderLeftWidth: StyleSheet.hairlineWidth * 2, borderLeftColor: colors.separator }}>
     <Pressable accessibilityRole="button" accessibilityLabel={`Subagent ${node.label}${node.mode === 'one-shot' ? ', one-shot' : ''}${active ? ', working' : ''}`} onPress={() => onOpen(node)}
       style={({ pressed }) => ({ minHeight: 34, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 9, backgroundColor: pressed ? colors.fill : 'transparent' })}>
-      <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: active ? colors.live : 'transparent' }} />
+      <StatusBadge kind={active ? 'working' : 'none'} size={9} />
       <Ionicons name={node.mode === 'continuable' ? 'chatbubbles-outline' : 'flash-outline'} size={12} color={colors.muted} />
       <T style="caption1" color="secondary" numberOfLines={1} styleOverride={{ flex: 1, fontSize: 12.5 }}>{node.label}</T>
       <SubagentToggle nodes={node.children} open={open} onToggle={() => setOpen(v => !v)} />
