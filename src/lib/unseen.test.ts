@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyUnseen, markSeen, observeRunning, prune } from './unseen';
+import { markUnseen, emptyUnseen, markSeen, observeRunning, prune } from './unseen';
 
 describe('finished-unseen (Web UI completionUnread)', () => {
   it('marks a thread that stops while not on screen', () => {
@@ -22,5 +22,12 @@ describe('finished-unseen (Web UI completionUnread)', () => {
   it('prunes threads that are gone', () => {
     const s = observeRunning(observeRunning(emptyUnseen(), 'A', true), 'A', false);
     expect(prune(s, new Set(['B'])).unseen).toEqual([]);
+  });
+  it('can be marked unread by hand and cleared by opening it', () => {
+    let s = markUnseen(emptyUnseen(), 'a');
+    expect(s.unseen).toEqual(['a']);
+    expect(markUnseen(s, 'a')).toBe(s);
+    s = markSeen(s, 'a');
+    expect(s.unseen).toEqual([]);
   });
 });

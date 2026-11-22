@@ -1,15 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { useApp } from './app';
-import { emptyUnseen, markSeen, observeRunning, prune, type UnseenState } from '../lib/unseen';
+import { emptyUnseen, markSeen, markUnseen, observeRunning, prune, type UnseenState } from '../lib/unseen';
 
 /**
  * Green "finished, not seen yet" dots (Web UI parity). Watches live running → stopped changes,
  * marks threads that finish while you aren't looking at them, and clears the mark when you open
  * the thread. Marks are saved per Harness so they survive restarting the app.
  */
-type Api = { unseen: ReadonlySet<string>; setViewing: (id?: string) => void };
-const Ctx = createContext<Api>({ unseen: new Set(), setViewing: () => {} });
+type Api = { unseen: ReadonlySet<string>; setViewing: (id?: string) => void; markUnread: (id: string) => void };
+const Ctx = createContext<Api>({ unseen: new Set(), setViewing: () => {}, markUnread: () => {} });
 
 const keyFor = (url: string) => `dsh.unseen.${url.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 80)}`;
 
@@ -53,8 +53,9 @@ export function UnseenProvider({ children }: { children: React.ReactNode }) {
   // Stable setViewing (consumers' effects depend on it): created once, writes the ref from a
   // handler (allowed), never during render.
   const [setViewing] = useState(() => (id?: string) => { viewing.current = id; if (id) setState(s => markSeen(s, id)); });
+  const [markUnread] = useState(() => (id: string) => setState(s => markUnseen(s, id)));
   const unseen = useMemo(() => new Set(prune(state, present).unseen), [state, present]);
-  const value = useMemo(() => ({ unseen, setViewing }), [unseen, setViewing]);
+  const value = useMemo(() => ({ unseen, setViewing, markUnread }), [unseen, setViewing, markUnread]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

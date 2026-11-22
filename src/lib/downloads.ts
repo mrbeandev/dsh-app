@@ -4,6 +4,7 @@ import { Directory, File, FileMode, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { MAX_WINDOW, mimeOf, readByteWindow, statFile, type FileStat } from './workspaceFiles';
+import { copyFileNative } from '../../modules/dsh-installer';
 import type { HarnessClient } from './harness';
 
 /**
@@ -107,9 +108,15 @@ export async function streamDownload(client: HarnessClient, sessionId: string, p
   // Chunked copy through handles: works for Storage Access Framework targets, keeps memory flat.
   // Explicit modes: a Downloads-folder (SAF content://) file opens read-only by default, so the first
   // write failed ("Cannot write. File opened in read-only mode") for every large download.
-  const src = local.open(FileMode.ReadOnly); const dst = target.open(FileMode.Truncate);
-  try { for (let chunk = src.readBytes(MAX_WINDOW); chunk.length; chunk = src.readBytes(MAX_WINDOW)) dst.writeBytes(chunk); }
-  finally { src.close(); dst.close(); }
+  // Native stream copy: expo's content:// handles lose their file descriptor to the GC partway through
+  // a long copy ("Bad file descriptor" on a 117 MB APK), so the copy runs in our own module.
+  try {
+    if (!(await copyFileNative(local.uri, target.uri))) {
+      const src = local.open(FileMode.ReadOnly); const dst = target.open(FileMode.Truncate);
+      try { for (let chunk = src.readBytes(MAX_WINDOW); chunk.length; chunk = src.readBytes(MAX_WINDOW)) dst.writeBytes(chunk); }
+      finally { src.close(); dst.close(); }
+    }
+  } catch (e) { try { target.delete(); } catch { /* ignore */ } throw e; }
   return { saved: { name: target.name, local, publicUri: target.uri, folderName: (await downloadFolderLabel()) ?? undefined }, stat };
 }
 

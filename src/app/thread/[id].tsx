@@ -14,6 +14,7 @@ import { clearDraft, flushDraft, peekDraft, readDraft, saveDraft } from '../../l
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { cacheEpoch, readHistory, writeHistory, type CachedHistory } from '../../lib/cache';
+import { useSessionGeneration } from '../../lib/sessionReset';
 import { randomUUID } from 'expo-crypto';
 import { useApp } from '../../state/app';
 import { Empty, ErrorNotice, Header, IconButton, ScrollEdge, Screen, T } from '../../components/ui';
@@ -105,6 +106,8 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
   const waitingLive = !offlineCache && historyState !== 'live' && !syncFailed;
   const syncingLive = waitingLive && syncSlow;
   const history = useRef<CachedHistory>({ records: [], cursor: -1, hasMore: false, savedAt: 0 });
+  // Bumped when this session's cache is cleared (from the list); the load effect below then starts over.
+  const generation = useSessionGeneration(id); const seenGeneration = useRef(generation);
   const scrollY = useRef(0);
   const [anchorHolds, setAnchorHolds] = useState(0);
   const chatScroll = useMemo(() => ({
@@ -138,10 +141,18 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
   useFocusEffect(useCallback(() => {
     let active = true; let receivedLive = false; let sync = new AbortController();
     const epoch = cacheEpoch(harnessUrl);
+    const reset = seenGeneration.current !== generation;
+    if (reset) {
+      // Cache cleared while open: forget everything held in memory and reload live (not from the
+      // cache, whose deletion may still be in progress).
+      seenGeneration.current = generation;
+      history.current = { records: [], cursor: -1, hasMore: false, savedAt: 0 };
+      setRecords([]); setCursor(-1); setHasMore(false); setHistoryState('loading');
+    }
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
-    const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); }, 400); };
-    const openedAt = Date.now(); diagnostic('chat.open', { phase: 'start' });
-    void readHistory(harnessUrl, id).then(cached => { diagnostic('chat.open', { phase: 'cache', durationMs: Date.now() - openedAt, count: cached?.records.length ?? 0 }); if (active && !receivedLive && cached) { cached = { ...cached, records: cached.records.map(liteEvent) }; history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
+    const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch, generation).catch(() => {}); }, 400); };
+    const openedAt = Date.now(); diagnostic('chat.open', { phase: 'start', reset });
+    if (!reset) void readHistory(harnessUrl, id).then(cached => { diagnostic('chat.open', { phase: 'cache', durationMs: Date.now() - openedAt, count: cached?.records.length ?? 0 }); if (active && !receivedLive && cached) { cached = { ...cached, records: cached.records.map(liteEvent) }; history.current = cached; setRecords(cached.records); setCursor(cached.cursor); setHasMore(cached.hasMore); setHistoryState('cached'); } else if (active && !receivedLive && (!client || client.connection.url !== harnessUrl)) setHistoryState('cached'); }).catch(() => { if (active && !receivedLive) setHistoryState('cached'); });
     liveChunks.current.clear();
     if (!client || client.connection.url !== harnessUrl) return () => { active = false; };
     // Keep the live stream's first frame small. A 24-message snapshot is ~80 KB: on a slow tunnel it takes
@@ -207,8 +218,8 @@ export function ChatPane({ id, harness }: { id: string; harness?: string }) {
         if (f.type === 'end' && f.outcome?.kind === 'abandoned') { attempt.current.valid = false; liveChunks.current.clear(); setLive(''); }
       }
     });
-    return () => { active = false; sync.abort(); stop(); clearTimeout(saveTimer); if (receivedLive) void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch).catch(() => {}); };
-  }, [client, id, harnessUrl, refresh, address, applyProjections]));
+    return () => { active = false; sync.abort(); stop(); clearTimeout(saveTimer); if (receivedLive) void writeHistory(harnessUrl, id, { ...history.current, savedAt: Date.now() }, epoch, generation).catch(() => {}); };
+  }, [client, id, harnessUrl, refresh, address, applyProjections, generation]));
   const rows = useMemo(() => foldTurns(records, buildTranscript(records)), [records]);
   // Expanding a lite step loads its full events: phone DB first, the Harness once if never stored.
   const steps = useMemo(() => ({ sessionId: id, load: (from: number, to: number) => turnEvents(client, harnessUrl, id, address, cursor, from, to) }), [client, harnessUrl, id, address, cursor]);

@@ -21,6 +21,11 @@ export function markSeen(s: UnseenState, id: string): UnseenState {
   return s.unseen.includes(id) ? { ...s, unseen: s.unseen.filter(x => x !== id) } : s;
 }
 
+/** Mark a thread as unread by hand (shows the blue badge until it's opened again). */
+export function markUnseen(s: UnseenState, id: string): UnseenState {
+  return s.unseen.includes(id) ? s : { ...s, unseen: [...s.unseen, id] };
+}
+
 /** Drop marks for threads that no longer exist (deleted/archived elsewhere). */
 export function prune(s: UnseenState, present: ReadonlySet<string>): UnseenState {
   const unseen = s.unseen.filter(id => present.has(id));

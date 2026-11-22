@@ -5,6 +5,7 @@ import * as SQLite from 'expo-sqlite';
 import type { Frame, Session, WireEvent } from './protocol';
 import type { CachedDirectory } from './directoryCache';
 import { bumpCacheEpoch, cacheEpoch } from './cacheEpoch';
+import { bumpAllSessionGenerations, bumpSessionGenerations, sessionGeneration } from './sessionReset';
 export type CachedHarness = { url: string; sessions: Session[]; workspaces: Frame[]; savedAt: number };
 export type CachedHistory = { records: WireEvent[]; cursor: number; hasMore: boolean; savedAt: number };
 let database: Promise<SQLite.SQLiteDatabase> | undefined;
@@ -21,12 +22,13 @@ export async function writeCatalog(value: CachedHarness, epoch = cacheEpoch(valu
 export async function listCaches(): Promise<{ url: string; bytes: number }[]> { return mergeSizes(await listCachesBase(), await storeBytes().catch(() => [])); }
 async function listCachesBase(): Promise<{ url: string; bytes: number }[]> { return (await db()).getAllAsync<{ url: string; bytes: number }>(`SELECT url,SUM(bytes) AS bytes FROM (SELECT url,length(CAST(data AS BLOB)) AS bytes FROM harness_cache UNION ALL SELECT url,length(CAST(data AS BLOB)) AS bytes FROM history_cache UNION ALL SELECT url,length(CAST(data AS BLOB)) AS bytes FROM directory_cache) GROUP BY url`); }
 export async function readHistory(url: string, sessionId: string): Promise<CachedHistory | null> { const row = await (await db()).getFirstAsync<{ data: string }>('SELECT data FROM history_cache WHERE url=? AND session_id=?', url, sessionId); return row ? JSON.parse(row.data) : null; }
-export async function writeHistory(url: string, sessionId: string, value: CachedHistory, epoch = cacheEpoch(url)) { if (epoch !== cacheEpoch(url)) return; const d = await db(); if (epoch !== cacheEpoch(url)) return; await d.runAsync('INSERT OR REPLACE INTO history_cache(url,session_id,data) VALUES (?,?,?)', url, sessionId, JSON.stringify(value)); }
+export async function writeHistory(url: string, sessionId: string, value: CachedHistory, epoch = cacheEpoch(url), generation?: number) { if (epoch !== cacheEpoch(url) || (generation !== undefined && generation !== sessionGeneration(sessionId))) return; const d = await db(); if (epoch !== cacheEpoch(url)) return; await d.runAsync('INSERT OR REPLACE INTO history_cache(url,session_id,data) VALUES (?,?,?)', url, sessionId, JSON.stringify(value)); }
 /**
  * Clear what this device cached for a Harness. `keepUnsent` (used by the automatic size limit) keeps
  * unsent drafts and the offline outbox: those are the user's own messages, not a rebuildable cache.
  */
 export async function clearCache(url: string, { keepUnsent = false }: { keepUnsent?: boolean } = {}) {
+  bumpAllSessionGenerations();
   await clearEvents(url).catch(() => {});
   if (!keepUnsent) { await clearDraftsFor(url).catch(() => {}); await clearOutboxFor(url).catch(() => {}); }
   bumpCacheEpoch(url);
@@ -34,7 +36,8 @@ export async function clearCache(url: string, { keepUnsent = false }: { keepUnse
   await d.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM history_cache WHERE url=?', url); await tx.runAsync('DELETE FROM harness_cache WHERE url=?', url); await tx.runAsync('DELETE FROM directory_cache WHERE url=?', url); });
   await d.execAsync('PRAGMA wal_checkpoint(TRUNCATE); VACUUM;');
 }
-export async function clearWorkspaceHistory(url: string, sessionIds: string[]) { await clearEvents(url, sessionIds).catch(() => {}); const d = await db(); await d.withExclusiveTransactionAsync(async tx => { for (const id of sessionIds) await tx.runAsync('DELETE FROM history_cache WHERE url=? AND session_id=?', url, id); }); }
+/** Clear the cached chats of these sessions (workspace or single session); open chats reload live. */
+export async function clearWorkspaceHistory(url: string, sessionIds: string[]) { bumpSessionGenerations(sessionIds); await clearEvents(url, sessionIds).catch(() => {}); const d = await db(); await d.withExclusiveTransactionAsync(async tx => { for (const id of sessionIds) await tx.runAsync('DELETE FROM history_cache WHERE url=? AND session_id=?', url, id); }); }
 export async function readDirectoryCache(url: string, scope: string, path: string): Promise<CachedDirectory | null> {
   const row = await (await db()).getFirstAsync<{ data: string }>('SELECT data FROM directory_cache WHERE url=? AND scope=? AND path=?', url, scope, path);
   return row ? JSON.parse(row.data) : null;

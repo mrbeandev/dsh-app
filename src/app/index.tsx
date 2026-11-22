@@ -66,7 +66,7 @@ function SessionList({ selectedId, onOpen, onSettings }: { selectedId?: string |
   const [subOpen, setSubOpen] = useState<Record<string, boolean>>({});
   const subIndex = useMemo(() => childIndex(sessions), [sessions]);
   const byId = useMemo(() => new Map(sessions.map(x => [x.sessionId, x])), [sessions]);
-  const { unseen } = useUnseen();
+  const { unseen, markUnread } = useUnseen();
   const live = status === 'connected';
   const working = useCallback((x: Session) => live && threadWorking(x, subIndex, byId), [live, subIndex, byId]);
   const rows = useMemo(() => sessions.filter(x => isListedSession(x) && !archived.includes(x.sessionId)).filter(x => (sessionTitle(x) + ' ' + (x.cwd ?? '')).toLowerCase().includes(query.toLowerCase()) && (filter !== 'Working' || working(x))), [sessions, archived, query, filter, working]);
@@ -125,6 +125,8 @@ function SessionList({ selectedId, onOpen, onSettings }: { selectedId?: string |
       { label: isPinned ? 'Unpin' : 'Pin to Top', icon: isPinned ? 'pin' : 'pin-outline', onPress: () => act(() => client!.call(isPinned ? 'workspace/unpinSession' : 'workspace/pinSession', { request: { sessionId } })) },
       { label: 'Browse Files', icon: 'folder-open-outline', onPress: () => router.push({ pathname: '/files', params: { sessionId } }) },
       { label: 'Open Terminal', icon: 'terminal-outline', onPress: () => router.push({ pathname: '/terminal', params: { sessionId } }) },
+      ...(unseen.has(sessionId) ? [] : [{ label: 'Mark as Unread', icon: 'ellipse' as const, detail: 'Shows the blue dot until you open it', onPress: () => markUnread(sessionId) }]),
+      { label: 'Clear Cache', icon: 'refresh-outline', detail: 'Re-downloads this chat from the Harness', onPress: () => { void refreshWorkspace([sessionId]).catch(e => setError(errorMessage(e))); } },
       { label: 'Archive', icon: 'archive-outline', destructive: true, detail: 'Hides it from the list; nothing is deleted', onPress: () => act(() => client!.call('workspace/archiveSession', { request: { sessionId, stopActivity: true } })) },
     ] });
   };
@@ -185,8 +187,9 @@ function SessionList({ selectedId, onOpen, onSettings }: { selectedId?: string |
             <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: index === section.data.length - 1 && !section.more ? 19 : 0, width: 1, backgroundColor: colors.border }} />
             <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 16, width: 15, height: 1, backgroundColor: colors.border }} />
             <Pressable accessibilityRole="button" accessibilityLabel={`${sessionTitle(item)}${self ? ', working' : active ? ', a subagent is working' : ''}${attention ? ', needs input' : ''}${finished ? ', finished, not seen yet' : ''}`} onPress={() => openThread(item.sessionId, client?.connection.url ?? savedUrl)} onLongPress={client ? () => threadMenu(item.sessionId, sessionTitle(item)) : undefined} delayLongPress={350} accessibilityState={selectedId !== undefined ? { selected: selectedId === item.sessionId } : undefined} style={({ pressed }) => ({ minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: selectedId === item.sessionId ? colors.text : colors.border, backgroundColor: pressed || selectedId === item.sessionId ? colors.state : colors.panel })}>
-              <Ionicons name="chatbubble-outline" size={13} color={colors.tertiary} />
-              <StatusBadge kind={attention ? 'input' : active ? 'working' : finished ? 'unseen' : 'none'} />
+              {/* One slot: the animated status replaces the chat icon when there is one. */}
+              {attention || active || finished ? <View style={{ width: 13, alignItems: 'center' }}><StatusBadge kind={attention ? 'input' : active ? 'working' : 'unseen'} size={12} /></View>
+                : <Ionicons name="chatbubble-outline" size={13} color={colors.tertiary} />}
               <T style="footnote" numberOfLines={1} styleOverride={{ flex: 1 }}>{sessionTitle(item)}</T>
               {pinned.includes(item.sessionId) ? <Ionicons name="pin" size={11} color={colors.muted} /> : null}
               <SubagentToggle nodes={tree} open={!!subOpen[item.sessionId]} onToggle={() => setSubOpen(o => ({ ...o, [item.sessionId]: !o[item.sessionId] }))} />

@@ -14,6 +14,7 @@ import { errorMessage } from '../lib/harness';
 import { downloadBytes, formatSize, isAudio, isImage, isMedia, isTextLike, mimeOf, readText, statFile } from '../lib/workspaceFiles';
 import { openFile, saveDownload, savedFromRecord, shareFile, streamDownload, type SavedFile } from '../lib/downloads';
 import { findDownload, recordDownload } from '../lib/downloadRecord';
+import { createTransferMeter, formatEta, type TransferStats } from '../lib/transferStats';
 import { MediaPlayer } from '../components/MediaPlayer';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
@@ -45,7 +46,7 @@ export default function FileScreen() {
   const [content, setContent] = useState<Uint8Array | null>(null);
   const [text, setText] = useState<{ lines: string[]; more: boolean } | null>(null);
   const [error, setError] = useState(''); const [loadPct, setLoadPct] = useState(0);
-  const [download, setDownload] = useState<number | null>(null); const [dlError, setDlError] = useState(''); const [saved, setSaved] = useState<SavedFile | null>(null);
+  const [download, setDownload] = useState<number | null>(null); const [dlStats, setDlStats] = useState<TransferStats | null>(null); const [dlError, setDlError] = useState(''); const [saved, setSaved] = useState<SavedFile | null>(null);
   const [absolute, setAbsolute] = useState(''); const [version, setVersion] = useState('');
   const [play, setPlay] = useState(false);
   const harness = client?.connection.url ?? '';
@@ -79,17 +80,17 @@ export default function FileScreen() {
     await recordDownload(harness, stat.absolutePath, { version: stat.version, bytes: stat.bytes, localUri: file.local.uri, publicUri: file.publicUri, name: file.name, folderName: file.folderName });
   };
   const doDownload = async (thenPlay = false) => {
-    if (!client || download !== null) return; setDownload(0); setDlError('');
+    if (!client || download !== null) return; setDownload(0); setDlError(''); setDlStats(null); const meter = createTransferMeter(); const track = (d: number, t: number) => setDlStats(meter(d, t));
     try {
       let file: SavedFile; let stat: { absolutePath: string; version: string; bytes?: number };
       if (content) { file = await saveDownload(name, content); stat = { absolutePath: absolute, version, bytes }; }
       else if (kind === 'media' || kind === 'other') {
         // Large files: write each 2 MB window straight to disk instead of holding the file in memory.
-        const r = await streamDownload(client, sessionId, path, name, (d, t) => setDownload(t ? Math.min(0.99, d / t) : 0)); file = r.saved; stat = r.stat;
-      } else { const r = await downloadBytes(client, sessionId, path, (d, t) => setDownload(t ? d / t : 0)); setDownload(1); file = await saveDownload(name, r.bytes); stat = r.stat; }
+        const r = await streamDownload(client, sessionId, path, name, (d, t) => { setDownload(t ? Math.min(0.99, d / t) : 0); track(d, t); }); file = r.saved; stat = r.stat;
+      } else { const r = await downloadBytes(client, sessionId, path, (d, t) => { setDownload(t ? d / t : 0); track(d, t); }); setDownload(1); file = await saveDownload(name, r.bytes); stat = r.stat; }
       setSaved(file); await remember(file, stat);
       if (thenPlay) setPlay(true);
-    } catch (e) { setDlError(errorMessage(e)); } finally { setDownload(null); }
+    } catch (e) { setDlError(errorMessage(e)); } finally { setDownload(null); setDlStats(null); }
   };
 
   const imageUri = useMemo(() => (kind === 'image' && content ? `data:${mimeOf(name)};base64,${toBase64(content)}` : ''), [kind, content, name]);
@@ -126,7 +127,13 @@ export default function FileScreen() {
           <Action icon="share-outline" label="Share" onPress={() => void shareFile(saved).catch(e => dialog.alert('Couldn’t Share', errorMessage(e), 'danger'))} />
         </View>
       </View>
-        : download !== null ? <LiquidProgress progress={download} label={download >= 1 ? 'Saving…' : `Downloading ${Math.round(download * 100)}%`} />
+        : download !== null ? <View style={{ gap: 6 }}>
+          <LiquidProgress progress={download} label={download >= 0.99 && dlStats && dlStats.remaining === 0 ? 'Saving to Downloads…' : `Downloading ${Math.round(download * 100)}%`} />
+          {dlStats && dlStats.total ? <T style="caption1" color="secondary" align="center" styleOverride={{ fontVariant: ['tabular-nums'] }}>
+            {dlStats.remaining === 0 ? `${formatSize(dlStats.total)} downloaded · copying to your Downloads folder`
+              : `${formatSize(dlStats.done)} of ${formatSize(dlStats.total)} · ${formatSize(dlStats.remaining)} left${dlStats.bytesPerSec ? ` · ${formatSize(Math.round(dlStats.bytesPerSec))}/s · about ${formatEta(dlStats.etaSec ?? 0)} left` : ' · measuring speed…'}`}
+          </T> : null}
+        </View>
         : <Pressable accessibilityRole="button" accessibilityLabel={`Download ${name} to this device`} disabled={!client} onPress={() => void doDownload(false)} style={({ pressed }) => ({ height: 46, borderRadius: 11, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.text, opacity: pressed ? 0.75 : 1 })}>
           <Ionicons name="download-outline" size={18} color={colors.bg} /><T style="footnote" weight="600" color={colors.bg} styleOverride={{ fontSize: 14 }}>{`Download${bytes ? ` · ${formatSize(bytes)}` : ''}`}</T>
         </Pressable>}

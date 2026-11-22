@@ -2,6 +2,7 @@ import { clearEvents, storeBytes } from './eventStore';
 import { clearDraftsFor } from './draftStore';
 import type { Frame, Session, WireEvent } from './protocol';
 import type { CachedDirectory } from './directoryCache';
+import { bumpAllSessionGenerations, bumpSessionGenerations } from './sessionReset';
 import { bumpCacheEpoch, cacheEpoch } from './cacheEpoch';
 export type CachedHarness = { url: string; sessions: Session[]; workspaces: Frame[]; savedAt: number };
 export type CachedHistory = { records: WireEvent[]; cursor: number; hasMore: boolean; savedAt: number };
@@ -18,9 +19,9 @@ async function listCachesBase(): Promise<{ url: string; bytes: number }[]> {
   const d = await open(); return new Promise((resolve, reject) => { const totals = new Map<string, number>(); const tx = d.transaction('cache'); const r = tx.objectStore('cache').openCursor(); r.onsuccess = () => { const c = r.result; if (c) { const [url] = JSON.parse(String(c.key)); totals.set(url, (totals.get(url) ?? 0) + new TextEncoder().encode(JSON.stringify(c.value)).length); c.continue(); } }; tx.oncomplete = () => { d.close(); resolve([...totals].map(([url, bytes]) => ({ url, bytes }))); }; tx.onerror = () => reject(tx.error); });
 }
 export async function clearCache(url: string, { keepUnsent = false }: { keepUnsent?: boolean } = {}) {
-  await clearEvents(url).catch(() => {}); if (!keepUnsent) await clearDraftsFor(url).catch(() => {}); bumpCacheEpoch(url); await remove(url); }
+  bumpAllSessionGenerations(); await clearEvents(url).catch(() => {}); if (!keepUnsent) await clearDraftsFor(url).catch(() => {}); bumpCacheEpoch(url); await remove(url); }
 async function remove(url: string, ids?: string[]) { const d = await open(); await new Promise<void>((resolve, reject) => { const tx = d.transaction('cache', 'readwrite'); const r = tx.objectStore('cache').openCursor(); r.onsuccess = () => { const c = r.result; if (c) { const [u, id] = JSON.parse(String(c.key)); if (u === url && (!ids || ids.includes(id))) c.delete(); c.continue(); } }; tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); d.close(); }
-export async function clearWorkspaceHistory(url: string, ids: string[]) { await clearEvents(url, ids).catch(() => {}); await remove(url, ids); }
+export async function clearWorkspaceHistory(url: string, ids: string[]) { bumpSessionGenerations(ids); await clearEvents(url, ids).catch(() => {}); await remove(url, ids); }
 export async function readDirectoryCache(url: string, scope: string, path: string): Promise<CachedDirectory | null> {
   return await operation('readonly', s => s.get(key(url, `directory:${scope}:${path}`))) ?? null;
 }
