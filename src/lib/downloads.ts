@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { MAX_WINDOW, mimeOf, readByteWindow, statFile, type FileStat } from './workspaceFiles';
@@ -84,7 +84,7 @@ export async function streamDownload(client: HarnessClient, sessionId: string, p
   cache.create({ idempotent: true, intermediates: true });
   const local = new File(cache, uniqueName(cache, name));
   local.create({ overwrite: true });
-  const handle = local.open();
+  const handle = local.open(FileMode.ReadWrite); // app-private file: plain read/write is fine
   let offset = 0;
   try {
     onProgress?.(0, total);
@@ -105,7 +105,9 @@ export async function streamDownload(client: HarnessClient, sessionId: string, p
   if (!dir) return { saved: { name: local.name, local }, stat };
   const target = dir.createFile(uniqueName(dir, name), mimeOf(name));
   // Chunked copy through handles: works for Storage Access Framework targets, keeps memory flat.
-  const src = local.open(); const dst = target.open();
+  // Explicit modes: a Downloads-folder (SAF content://) file opens read-only by default, so the first
+  // write failed ("Cannot write. File opened in read-only mode") for every large download.
+  const src = local.open(FileMode.ReadOnly); const dst = target.open(FileMode.Truncate);
   try { for (let chunk = src.readBytes(MAX_WINDOW); chunk.length; chunk = src.readBytes(MAX_WINDOW)) dst.writeBytes(chunk); }
   finally { src.close(); dst.close(); }
   return { saved: { name: target.name, local, publicUri: target.uri, folderName: (await downloadFolderLabel()) ?? undefined }, stat };

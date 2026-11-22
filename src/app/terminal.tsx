@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Loading } from '../components/Loader';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -11,9 +11,10 @@ import { Empty, ErrorNotice, Header, IconButton, Screen, T } from '../components
 import { errorMessage } from '../lib/harness';
 import { openTerminal, type TerminalConnection } from '../lib/terminalStream';
 import * as SecureStore from 'expo-secure-store';
+import { anyMod, applyMods, keyBytes, NO_MODS, type Mods } from '../lib/termKeys';
+import { EXPANDED_KEY, TerminalKeys, type TermKey } from '../components/TerminalKeys';
 import { XTerm, type XTermHandle } from '../components/XTerm';
 
-const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 type TermInfo = { id: string; title: string; cwd: string; state: 'running' | 'exited' | 'failed'; exitCode: number | null; shell?: { name: string } };
 const COLS = 80, ROWS = 24;
 type KeyIcon = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -21,15 +22,7 @@ type KeyIcon = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
  * Extra keys above the keyboard. `icon` keys show a keyboard icon (their `label` is the spoken name);
  * symbol keys (| ~ / -) show the character itself, since that's what gets typed.
  */
-const KEYS: { label: string; data: string; icon?: KeyIcon; letter?: string }[] = [
-  { label: 'Escape', data: '\u001b', icon: 'keyboard-esc' }, { label: 'Tab', data: '\t', icon: 'keyboard-tab' },
-  { label: 'Control C, interrupt', data: '\u0003', icon: 'apple-keyboard-control', letter: 'C' }, { label: 'Control D, end of input', data: '\u0004', icon: 'apple-keyboard-control', letter: 'D' },
-  { label: 'Left arrow', data: '\u001b[D', icon: 'arrow-left' }, { label: 'Up arrow', data: '\u001b[A', icon: 'arrow-up' },
-  { label: 'Down arrow', data: '\u001b[B', icon: 'arrow-down' }, { label: 'Right arrow', data: '\u001b[C', icon: 'arrow-right' },
-  { label: 'Home', data: '\u001b[H', icon: 'arrow-collapse-left' }, { label: 'End', data: '\u001b[F', icon: 'arrow-collapse-right' },
-  { label: 'Page up', data: '\u001b[5~', icon: 'chevron-double-up' }, { label: 'Page down', data: '\u001b[6~', icon: 'chevron-double-down' },
-  { label: '|', data: '|' }, { label: '~', data: '~' }, { label: '/', data: '/' }, { label: '-', data: '-' },
-];
+
 const FONT_KEY = 'dsh.terminal.fontSize';
 
 /** Workspace terminal over the official terminal API (create / follow / write / resize / close). */
@@ -82,7 +75,11 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
   const term = useRef<XTermHandle>(null);
   const conn = useRef<TerminalConnection | null>(null);
   const [state, setState] = useState<TermInfo['state']>('running'); const [error, setError] = useState('');
-  const [fontSize, setFontSize] = useState(12); const [ctrl, setCtrl] = useState(false);
+  const [fontSize, setFontSize] = useState(12); const [mods, setMods] = useState<Mods>(NO_MODS);
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => { void SecureStore.getItemAsync(EXPANDED_KEY).then(v => { if (v === '1') setExpanded(true); }).catch(() => {}); }, []);
+  const toggleExpanded = () => setExpanded(e => { void SecureStore.setItemAsync(EXPANDED_KEY, e ? '0' : '1').catch(() => {}); return !e; });
+
   const [ready, setReady] = useState(false);
   const pending = useRef<string[]>([]); const snapshot = useRef<string | null>(null); const readyRef = useRef(false);
   const onStateRef = useRef(onState);
@@ -122,10 +119,14 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
     } catch (e) { setError(errorMessage(e)); o.buf = ''; } finally { o.busy = false; }
   }, [client]);
   const send = (data: string) => { if (!client || state !== 'running') return; outbox.current.buf += data; void flush(); };
-  // With the Ctrl key latched, the next typed letter becomes its control code (Ctrl-A … Ctrl-Z, Ctrl-[ etc.).
+  // Sticky modifiers apply to the next typed character or tapped key, then release.
   const onInput = (data: string) => {
-    if (ctrl && data.length === 1) { const c = data.toUpperCase().charCodeAt(0); setCtrl(false); if (c >= 64 && c <= 95) { send(String.fromCharCode(c - 64)); return; } }
+    if (anyMod(mods) && data.length === 1) { send(applyMods(data, mods)); setMods(NO_MODS); return; }
     send(data);
+  };
+  const pressKey = (k: TermKey) => {
+    send(k.text ? applyMods(k.text, mods) : keyBytes(k.id, mods));
+    if (anyMod(mods)) setMods(NO_MODS);
   };
   const resizeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const onResize = (cols: number, rows: number) => { clearTimeout(resizeTimer.current); resizeTimer.current = setTimeout(() => { conn.current?.resize(cols, rows); }, 120); };
@@ -144,18 +145,10 @@ function TerminalView({ sessionId, id, onState }: { sessionId: string; id: strin
       {state !== 'running' ? <View style={{ padding: 8, backgroundColor: colors.panel }}><T style="caption1" color={colors.warning} align="center">Shell {state}. Open a new terminal to continue.</T></View> : null}
     </View>
     <ErrorNotice message={error} />
-    <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 8, gap: 6 }}>
-      <KeyBtn label="Control" icon="apple-keyboard-control" active={ctrl} onPress={() => setCtrl(v => !v)} />
-      {KEYS.map(k => <KeyBtn key={k.label} label={k.label} icon={k.icon} letter={k.letter} onPress={() => send(k.data)} />)}
-    </ScrollView>
+    <TerminalKeys mods={mods} setMods={setMods} onKey={pressKey} expanded={expanded} onToggleExpanded={toggleExpanded} />
   </KeyboardAvoidingView>;
 }
 
-function KeyBtn({ label, onPress, active, icon, letter }: { label: string; onPress: () => void; active?: boolean; icon?: KeyIcon; letter?: string }) {
-  const { colors } = useApp();
-  return <Pressable accessibilityRole="button" accessibilityLabel={label === 'Control' ? 'Control key' : `Send ${label}`} accessibilityState={{ selected: !!active }} onPress={onPress} style={({ pressed }) => ({ height: 32, minWidth: 42, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? colors.primary : colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}>{icon && letter ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialCommunityIcons name={icon} size={15} color={colors.text} /><Text style={{ color: colors.text, fontFamily: MONO, fontSize: 14, fontWeight: '600' }}>{letter}</Text></View>
-    : icon ? <MaterialCommunityIcons name={icon} size={18} color={active ? colors.bg : colors.text} /> : <Text style={{ color: active ? colors.bg : colors.text, fontFamily: MONO, fontSize: 14 }}>{label}</Text>}</Pressable>;
-}
 function Mini({ icon, a11y, onPress }: { icon: KeyIcon; a11y: string; onPress: () => void }) {
   const { colors } = useApp();
   return <Pressable accessibilityRole="button" accessibilityLabel={a11y} hitSlop={6} onPress={onPress} style={({ pressed }) => ({ height: 28, minWidth: 34, paddingHorizontal: 8, borderRadius: 8, boxShadow: `inset 0 1px 0 ${colors.rim}`, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.fill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, opacity: pressed ? 0.5 : 1 })}><MaterialCommunityIcons name={icon} size={18} color={colors.text} /></Pressable>;
