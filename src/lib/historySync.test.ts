@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const store = vi.hoisted(() => ({ low: 100, complete: false, puts: 0 }));
+const store = vi.hoisted(() => ({ low: 100, complete: false, puts: 0, local: [] as { seq: number; type: string; time: number; data: object }[] }));
 vi.mock('./eventStore', () => ({
   coverage: async () => ({ low: store.low, high: 200, complete: store.complete }),
-  eventsBetween: async () => [],
+  eventsBetween: async (_u: string, _s: string, from: number, to: number) => store.local.filter(e => e.seq >= from && e.seq <= to),
   putEvents: async (_u: string, _s: string, _e: unknown[], o: { reachedStart?: boolean } = {}) => { store.puts++; store.low -= 10; if (o.reachedStart) store.complete = true; },
 }));
-const { backfill, markInteraction } = await import('./historySync');
+const { backfill, markInteraction, turnEvents } = await import('./historySync');
 
 const page = (hasMore: boolean) => ({ records: [{ type: 'event', event: { seq: 1, type: 'x', time: 0, data: {} } }], hasMore });
-beforeEach(() => { vi.useFakeTimers(); store.low = 100; store.complete = false; store.puts = 0; });
+beforeEach(() => { vi.useFakeTimers(); store.low = 100; store.complete = false; store.puts = 0; store.local = []; });
 afterEach(() => vi.useRealTimers());
 
 describe('history backfill scheduling', () => {
@@ -43,5 +43,23 @@ describe('history backfill scheduling', () => {
     await vi.advanceTimersByTimeAsync(5000);
     await run;
     expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe('loading a folded row (thought / tool) on demand', () => {
+  const ev = (seq: number) => ({ seq, type: 'assistant/message', time: 0, data: {} });
+  it('fetches from the Harness when the event sits in a gap inside the stored range', async () => {
+    store.low = 50; store.local = [ev(50), ev(120)]; // range 50..200 claims 80, but 80 isn't stored
+    const request = vi.fn(async () => ({ records: [{ type: 'event', event: ev(80) }], hasMore: false }));
+    const out = await turnEvents({ request } as never, 'u', 's', {} as never, 200, 80, 80);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(out.map(e => e.seq)).toEqual([80]);
+  });
+  it('uses the phone copy when the event is stored', async () => {
+    store.low = 50; store.local = [ev(80)];
+    const request = vi.fn();
+    const out = await turnEvents({ request } as never, 'u', 's', {} as never, 200, 80, 80);
+    expect(request).not.toHaveBeenCalled();
+    expect(out.map(e => e.seq)).toEqual([80]);
   });
 });

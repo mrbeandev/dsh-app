@@ -39,7 +39,10 @@ export async function backfill(client: HarnessClient, url: string, sessionId: st
 export async function turnEvents(client: HarnessClient | null, url: string, sessionId: string, address: Address, throughSeq: number, fromSeq: number, toSeq: number): Promise<WireEvent[]> {
   const local = await eventsBetween(url, sessionId, fromSeq, toSeq);
   const cov = await coverage(url, sessionId);
-  const covered = !!cov && cov.low <= fromSeq && cov.high >= toSeq;
+  // Coverage is only a low..high range and can have gaps (live events + later pages), so also require
+  // the exact start and end events to be on the phone; otherwise a row in a gap showed "No details".
+  const have = new Set(local.map(e => e.seq));
+  const covered = !!cov && cov.low <= fromSeq && cov.high >= toSeq && have.has(fromSeq) && have.has(toSeq);
   if (covered || !client) return local;
   const page = await client.request<Page>('session/page', { address, throughSeq: Math.max(throughSeq, toSeq), beforeSeq: toSeq + 1, maxMessages: 400, turnWindow: undefined });
   const fetched = eventsOf(page).filter(e => e.seq >= fromSeq && e.seq <= toSeq);
